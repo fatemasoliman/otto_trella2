@@ -1,0 +1,16 @@
+{
+  "manifest_version": 2,
+  "name": "OttoFill Extension",
+  "version": "1.0",
+  "description": "Fetches and displays emails from OttoFill server",
+  "permissions": [
+    "http://ec2-13-60-225-182.eu-north-1.compute.amazonaws.com:8080/"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "browser_action": {
+    "default_popup": "popup.html"
+  }
+}

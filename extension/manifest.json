@@ -1,0 +1,53 @@
+{
+    "manifest_version": 3,
+    "name": "OttoFill - Trella's Load Creation Assistant",
+    "version": "1.0",
+    "description": "Trella's load creation assistant",
+    "permissions": [
+      "identity",
+      "storage",
+      "activeTab",
+      "scripting",
+      "webRequest",
+      "webNavigation"
+    ],
+    "host_permissions": [
+      "https://mail.google.com/",
+      "https://www.googleapis.com/",
+      "https://api.openai.com/",
+      "http://localhost:3000/",
+      "ws://localhost:3000/",
+      "https://your-app-name.herokuapp.com/",
+      "wss://your-app-name.herokuapp.com/",
+      "https://your-env-name.elasticbeanstalk.com/",
+      "wss://your-env-name.elasticbeanstalk.com/"
+    ],
+    "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://*.googleapis.com https://api.openai.com https://your-env-name.elasticbeanstalk.com wss://your-env-name.elasticbeanstalk.com;"
+    },
+    "action": {
+    },
+    "background": {
+      "service_worker": "background.js"
+    },
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "css": ["drawer.css"],
+        "js": ["content.js"],
+        "type": "module"
+      }
+    ],
+    "oauth2": {
+      "client_id": "338181681456-c1cfl6l8pqqii3f8oe55c9e704vf3m0q.apps.googleusercontent.com",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.readonly"
+      ]
+    },
+    "web_accessible_resources": [
+      {
+        "resources": ["drawer.js", "gpt_service.js", "config.js", "drawer.css"],
+        "matches": ["<all_urls>"]
+      }
+    ]
+  }
