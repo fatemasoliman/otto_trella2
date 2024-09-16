@@ -1,166 +1,144 @@
 import { GPTService } from './gpt_service.js';
+import { AuthService } from './auth_service.js';
+
+console.log('drawer.js starting...');
+
+function createDrawer() {
+  console.log('Creating drawer...');
+  const container = document.createElement('div');
+  container.id = 'ai-extension-container';
+  
+  const drawer = document.createElement('div');
+  drawer.id = 'ottofill-drawer';
+  drawer.className = 'drawer';
+  
+  // Add basic styling to ensure visibility
+  drawer.style.position = 'fixed';
+  drawer.style.top = '0';
+  drawer.style.right = '-300px'; // Start off-screen
+  drawer.style.width = '300px';
+  drawer.style.height = '100%';
+  drawer.style.backgroundColor = 'white';
+  drawer.style.boxShadow = '-2px 0 5px rgba(0,0,0,0.2)';
+  drawer.style.transition = 'right 0.3s ease-in-out';
+  drawer.style.zIndex = '9999999'; // Ensure it's on top of other elements
+  
+  const content = document.createElement('div');
+  content.className = 'drawer-content';
+  content.textContent = 'Drawer Content'; // Add some visible content
+  
+  drawer.appendChild(content);
+  container.appendChild(drawer);
+  document.body.appendChild(container);
+  console.log('Drawer created and added to DOM');
+
+  // Add a visible tab
+  const tab = document.createElement('div');
+  tab.id = 'drawer-tab';
+  tab.style.position = 'fixed';
+  tab.style.top = '50%';
+  tab.style.right = '0';
+  tab.style.width = '30px';
+  tab.style.height = '60px';
+  tab.style.backgroundColor = 'blue';
+  tab.style.cursor = 'pointer';
+  tab.style.zIndex = '9999999';
+  tab.onclick = () => window.drawerInstance.toggleDrawer();
+  document.body.appendChild(tab);
+  console.log('Drawer tab created and added to DOM');
+}
 
 class Drawer {
   constructor() {
-    this.isOpen = false;
-    this.drawerElement = null;
-    this.tabElement = null;
-    this.gptService = new GPTService();
-    this.createDrawer();
-    this.createTab();
+    console.log('Drawer constructor called');
+    console.log('Initializing Drawer...');
+    this.drawer = document.getElementById('ottofill-drawer');
+    if (!this.drawer) {
+      console.error('Drawer element not found. Creating it now.');
+      createDrawer();
+      this.drawer = document.getElementById('ottofill-drawer');
+    }
+    this.authService = new AuthService(); // New instance
+    this.gptService = new GPTService(); // Assuming this exists
     this.initializeEventListeners();
   }
 
-  createDrawer() {
-    this.drawerElement = document.createElement('div');
-    this.drawerElement.id = 'extension-drawer';
-    
-    // Create a shadow root
-    const shadow = this.drawerElement.attachShadow({mode: 'open'});
-    
-    // Create a style element for the shadow DOM
-    const style = document.createElement('style');
-    style.textContent = `
-      /* Copy the contents of drawer.css here */
-    `;
-    
-    // Create the drawer content
-    const content = document.createElement('div');
-    content.id = 'drawer-content';
-    content.innerHTML = `
-      <button id="authenticate">Authenticate with Gmail</button>
-      <button id="toggle-text-input">Paste email here</button>
-      <div id="email-list-container">
-        <div id="email-list"></div>
-      </div>
-      <div id="text-input-wrapper" style="display: none;">
-        <textarea id="custom-text-input" placeholder="Paste email here"></textarea>
-      </div>
-      <div id="email-content-view" style="display: none;">
-        <h3 id="email-subject"></h3>
-        <p id="email-from"></p>
-        <div id="email-body"></div>
-      </div>
-      <div id="form-fields-container" style="display: none;">
-        <button id="fill-form-with-otto">Fill Form with Otto</button>
-      </div>
-    `;
-    
-    // Append the style and content to the shadow root
-    shadow.appendChild(style);
-    shadow.appendChild(content);
-    
-    document.body.appendChild(this.drawerElement);
+  initializeEventListeners() {
+    // Add event listeners for drawer interactions if needed
+    const loginButton = document.getElementById('login-button');
+    loginButton.addEventListener('click', () => this.handleLogin());
   }
 
-  createTab() {
-    this.tabElement = document.createElement('div');
-    this.tabElement.id = 'drawer-tab';
-    this.tabElement.addEventListener('click', () => this.toggleDrawer());
-    document.body.appendChild(this.tabElement);
+  async handleLogin() {
+    try {
+      const user = await this.authService.authenticate();
+      if (user) {
+        this.updateUIForLoggedInUser(user);
+        this.fetchUserEmails(user.id);
+      }
+    } catch (error) {
+      console.error('Login failed:', error);
+    }
+  }
+
+  updateUIForLoggedInUser(user) {
+    // Update UI to show logged-in state
+    const userInfo = document.getElementById('user-info');
+    userInfo.textContent = `Logged in as: ${user.email}`;
+  }
+
+  async fetchUserEmails(userId) {
+    try {
+      const emails = await this.gptService.fetchEmails(userId);
+      this.displayEmails(emails);
+    } catch (error) {
+      console.error('Failed to fetch emails:', error);
+    }
+  }
+
+  displayEmails(emails) {
+    const emailList = document.getElementById('email-list');
+    emailList.innerHTML = '';
+    emails.forEach(email => {
+      const li = document.createElement('li');
+      li.textContent = email.subject;
+      emailList.appendChild(li);
+    });
   }
 
   toggleDrawer() {
-    this.isOpen = !this.isOpen;
-    this.drawerElement.classList.toggle('open', this.isOpen);
-    this.tabElement.classList.toggle('open', this.isOpen);
-  }
-
-  initializeEventListeners() {
-    const authenticateButton = document.getElementById('authenticate');
-    const emailList = document.getElementById('email-list');
-    const emailContentView = document.getElementById('email-content-view');
-    const emailSubject = document.getElementById('email-subject');
-    const emailFrom = document.getElementById('email-from');
-    const emailBody = document.getElementById('email-body');
-    const formFieldsContainer = document.getElementById('form-fields-container');
-    const fillFormButton = document.getElementById('fill-form-with-otto');
-    const toggleTextInputButton = document.getElementById('toggle-text-input');
-    const textInputWrapper = document.getElementById('text-input-wrapper');
-    const customTextInput = document.getElementById('custom-text-input');
-    const emailListContainer = document.getElementById('email-list-container');
-
-    authenticateButton.addEventListener('click', this.handleAuthentication.bind(this));
-    fillFormButton.addEventListener('click', this.handleFillForm.bind(this));
-    toggleTextInputButton.addEventListener('click', this.handleToggleTextInput.bind(this));
-
-    this.init();
-  }
-
-  handleAuthentication() {
-    console.log('Authenticate button clicked');
-    // Send a message to the content script
-    window.postMessage({ action: 'authenticate' }, '*');
-  }
-
-  handleFillForm() {
-    const selectedEmail = document.querySelector('.email-item.selected');
-    const customTextInput = document.getElementById('custom-text-input');
-    if (selectedEmail) {
-      const emailBody = selectedEmail.getAttribute('data-body');
-      this.fillFormWithGPT(emailBody);
-    } else if (customTextInput.value.trim()) {
-      this.fillFormWithGPT(customTextInput.value.trim());
+    console.log('toggleDrawer called');
+    console.log('Toggling drawer...');
+    if (this.drawer.style.right === '0px') {
+      this.drawer.style.right = '-300px';
+      console.log('Drawer closed');
     } else {
-      console.log('No email selected and no custom text entered');
-      alert('Please select an email or paste an email in the text area first.');
+      this.drawer.style.right = '0px';
+      console.log('Drawer opened');
     }
   }
 
-  handleToggleTextInput() {
-    const textInputWrapper = document.getElementById('text-input-wrapper');
-    const emailListContainer = document.getElementById('email-list-container');
-    const toggleTextInputButton = document.getElementById('toggle-text-input');
-
-    if (textInputWrapper.style.display === 'none') {
-      textInputWrapper.style.display = 'flex';
-      emailListContainer.style.display = 'none';
-      toggleTextInputButton.textContent = 'Show emails';
-    } else {
-      textInputWrapper.style.display = 'none';
-      emailListContainer.style.display = 'block';
-      toggleTextInputButton.textContent = 'Paste email here';
-    }
-  }
-
-  hideAuthButton() {
-    document.getElementById('authenticate').style.display = 'none';
-  }
-
-  async fetchEmails(token) {
-    // Implement email fetching logic here
-    // This should be similar to your previous fetchEmails function
-  }
-
-  async fillFormWithGPT(emailBody) {
-    // Implement form filling logic here
-    // This should be similar to your previous fillFormWithGPT function
-  }
-
-  init() {
-    // Implement initialization logic here
-    // This should be similar to your previous init function
-  }
-
-  // Add other necessary methods from your previous popup.js here
+  // Add other methods as needed
 }
 
-// Create and initialize the drawer
-const drawer = new Drawer();
-
-// Listen for messages from the content script
-window.addEventListener('message', (event) => {
-  if (event.data.action === 'authenticationResponse') {
-    console.log('Received authentication response:', event.data);
-    if (event.data.token) {
-      console.log('Authentication successful, hiding button and fetching emails');
-      drawer.hideAuthButton();
-      drawer.fetchEmails(event.data.token);
-    } else {
-      console.error('Authentication failed:', event.data.error || 'Unknown error');
-      document.getElementById('email-list').innerHTML = `<p>Authentication failed: ${event.data.error || 'Unknown error'}</p>`;
+// Listen for messages from the background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Message received in drawer.js:', request);
+  if (request.action === 'toggleDrawer') {
+    console.log('Toggle drawer requested');
+    if (!window.drawerInstance) {
+      console.log('Creating new Drawer instance');
+      window.drawerInstance = new Drawer();
     }
+    window.drawerInstance.toggleDrawer();
   }
 });
 
-export { drawer };
+// Create drawer immediately when the script loads
+createDrawer();
+
+console.log('drawer.js loaded and ready');
+
+// Expose Drawer and createDrawer to the global scope
+window.Drawer = Drawer;
+window.createDrawer = createDrawer;

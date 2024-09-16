@@ -1,157 +1,107 @@
-import config from './config.js';
+import { config } from './config.js';
 
-export class GPTService {
-    constructor() {
-        this.API_KEY = config.openAIKey;
-        this.API_URL = 'https://api.openai.com/v1';
-        this.ASSISTANT_ID = 'asst_auGRoJqaRVySWahymKlPW90Q';
-    }
+const API_BASE_URL = 'https://api.openai.com/v1';
+const ASSISTANT_ID = 'asst_auGRoJqaRVySWahymKlPW90Q';
+
+export const GPTService = {
+    async getFormCompletion(prompt) {
+        try {
+            console.log('Starting OpenAI Assistant process...');
+
+            // Create a thread
+            const thread = await this.createThread();
+
+            // Add a message to the thread
+            await this.addMessageToThread(thread.id, prompt);
+
+            // Run the assistant
+            const run = await this.runAssistant(thread.id);
+
+            // Wait for the run to complete
+            await this.waitForRunCompletion(thread.id, run.id);
+
+            // Retrieve the assistant's response
+            const messages = await this.getThreadMessages(thread.id);
+            const assistantResponse = messages.data.find(msg => msg.role === 'assistant');
+
+            if (!assistantResponse) {
+                throw new Error('No response from assistant');
+            }
+
+            console.log('Assistant response:', assistantResponse.content[0].text.value);
+            return JSON.parse(assistantResponse.content[0].text.value);
+        } catch (error) {
+            console.error('Error in GPTService:', error);
+            throw error;
+        }
+    },
+
+    async createThread() {
+        const response = await fetch(`${API_BASE_URL}/threads`, {
+            method: 'POST',
+            headers: this.getHeaders(),
+        });
+        return this.handleResponse(response);
+    },
+
+    async addMessageToThread(threadId, content) {
+        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/messages`, {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify({ role: 'user', content }),
+        });
+        return this.handleResponse(response);
+    },
+
+    async runAssistant(threadId) {
+        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/runs`, {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify({ assistant_id: ASSISTANT_ID }),
+        });
+        return this.handleResponse(response);
+    },
+
+    async waitForRunCompletion(threadId, runId) {
+        let run;
+        do {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
+            run = await this.getRunStatus(threadId, runId);
+        } while (run.status === 'queued' || run.status === 'in_progress');
+
+        if (run.status !== 'completed') {
+            throw new Error(`Run failed with status: ${run.status}`);
+        }
+    },
+
+    async getRunStatus(threadId, runId) {
+        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/runs/${runId}`, {
+            headers: this.getHeaders(),
+        });
+        return this.handleResponse(response);
+    },
+
+    async getThreadMessages(threadId) {
+        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/messages`, {
+            headers: this.getHeaders(),
+        });
+        return this.handleResponse(response);
+    },
 
     getHeaders() {
         return {
-            'Authorization': `Bearer ${this.API_KEY}`,
             'Content-Type': 'application/json',
-            'OpenAI-Beta': 'assistants=v2'
+            'Authorization': `Bearer ${config.OPENAI_API_KEY}`,
+            'OpenAI-Beta': 'assistants=v1'
         };
-    }
+    },
 
-    async createThread() {
-        try {
-            const response = await fetch(`${this.API_URL}/threads`, {
-                method: 'POST',
-                headers: this.getHeaders(),
-            });
-            if (!response.ok) {
-                const errorBody = await response.text();
-                throw new Error(`Failed to create thread: ${response.status}. Body: ${errorBody}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Error in createThread:', error);
-            throw error;
+    async handleResponse(response) {
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('OpenAI API error response:', errorBody);
+            throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
         }
+        return response.json();
     }
-
-    async addMessageToThread(threadId, content) {
-        try {
-            const response = await fetch(`${this.API_URL}/threads/${threadId}/messages`, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify({
-                    role: 'user',
-                    content: content
-                })
-            });
-            if (!response.ok) {
-                const errorBody = await response.text();
-                throw new Error(`Failed to add message: ${response.status}. Body: ${errorBody}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Error in addMessageToThread:', error);
-            throw error;
-        }
-    }
-
-    async runAssistant(threadId) {
-        try {
-            const response = await fetch(`${this.API_URL}/threads/${threadId}/runs`, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify({
-                    assistant_id: this.ASSISTANT_ID
-                })
-            });
-            if (!response.ok) {
-                const errorBody = await response.text();
-                throw new Error(`Failed to run assistant: ${response.status}. Body: ${errorBody}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Error in runAssistant:', error);
-            throw error;
-        }
-    }
-
-    async checkRunStatus(threadId, runId) {
-        try {
-            const response = await fetch(`${this.API_URL}/threads/${threadId}/runs/${runId}`, {
-                method: 'GET',
-                headers: this.getHeaders(),
-            });
-            if (!response.ok) {
-                const errorBody = await response.text();
-                throw new Error(`Failed to check run status: ${response.status}. Body: ${errorBody}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Error in checkRunStatus:', error);
-            throw error;
-        }
-    }
-
-    async getMessages(threadId) {
-        try {
-            const response = await fetch(`${this.API_URL}/threads/${threadId}/messages`, {
-                method: 'GET',
-                headers: this.getHeaders(),
-            });
-            if (!response.ok) {
-                const errorBody = await response.text();
-                throw new Error(`Failed to get messages: ${response.status}. Body: ${errorBody}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Error in getMessages:', error);
-            throw error;
-        }
-    }
-
-    async getFormCompletion(emailBody, formFields) {
-        try {
-            console.log('Starting form completion process...');
-
-            const thread = await this.createThread();
-            console.log('Thread created:', thread.id);
-
-            const prompt = `
-                Please analyze the following email and extract information to fill out a form. 
-                The form fields are: ${formFields.join(', ')}.
-                
-                Email content:
-                ${emailBody}
-
-                Please provide your response as a JSON object where the keys are the form field labels and the values are the extracted information.
-            `;
-
-            await this.addMessageToThread(thread.id, prompt);
-            console.log('Message added to thread');
-
-            const run = await this.runAssistant(thread.id);
-            console.log('Assistant run started:', run.id);
-
-            let runStatus;
-            do {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                runStatus = await this.checkRunStatus(thread.id, run.id);
-                console.log('Current run status:', runStatus.status);
-            } while (runStatus.status !== 'completed');
-
-            const messages = await this.getMessages(thread.id);
-            console.log('Retrieved messages');
-
-            const assistantMessage = messages.data.find(m => m.role === 'assistant');
-            if (!assistantMessage) {
-                throw new Error('No assistant message found');
-            }
-
-            const assistantResponse = assistantMessage.content[0].text.value;
-            console.log('Assistant response:', assistantResponse);
-
-            return JSON.parse(assistantResponse);
-        } catch (error) {
-            console.error('Error in getFormCompletion:', error);
-            throw error;
-        }
-    }
-}
+};

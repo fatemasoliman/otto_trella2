@@ -1,18 +1,33 @@
 // Function to get form field names
 function getFormFields() {
-    const fields = document.querySelectorAll('input[role="combobox"], input[type="text"], input[type="number"], input[type="checkbox"], textarea, input[aria-autocomplete="list"], input[role="spinbutton"], input[type="date"], input[type="time"]');
-    return Array.from(fields).map((field, index) => {
-        // Try to get the field name or label
-        const name = field.name || 
-                     (field.labels[0] ? field.labels[0].textContent.trim() : null) || 
-                     document.querySelector(`label[for="${field.id}"]`)?.textContent.trim() ||
-                     field.placeholder || 
-                     field.id || 
-                     field.getAttribute('aria-label');
-        
-        // If no name found, use the index as a fallback
-        return name || `field_${index}`;
-    }).filter(name => name);
+    const fields = document.querySelectorAll('input[type="text"], input[type="date"], input[type="number"], select, textarea');
+    return Array.from(fields).map(field => {
+        let label = '';
+        let name = field.name || field.id;
+
+        // Try to find a label
+        const labelElement = document.querySelector(`label[for="${field.id}"]`);
+        if (labelElement) {
+            label = labelElement.textContent.trim();
+        } else {
+            // If no label found, try to find a parent element with a text node
+            let parent = field.parentElement;
+            while (parent && !label) {
+                const textNodes = Array.from(parent.childNodes).filter(node => node.nodeType === Node.TEXT_NODE);
+                if (textNodes.length > 0) {
+                    label = textNodes[0].textContent.trim();
+                }
+                parent = parent.parentElement;
+            }
+        }
+
+        return {
+            name: name,
+            label: label,
+            type: field.type || field.tagName.toLowerCase(),
+            value: field.value
+        };
+    });
 }
 
 function autofillForm(formData) {
@@ -78,44 +93,98 @@ function autofillForm(formData) {
     }
 }
 
-// Inject the drawer CSS
-const style = document.createElement('link');
-style.rel = 'stylesheet';
-style.type = 'text/css';
-style.href = chrome.runtime.getURL('drawer.css');
-document.head.appendChild(style);
+async function initializeContentScript() {
+    console.log('Initializing content script...');
+    
+    // Add Lato font
+    const fontLink = document.createElement('link');
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap';
+    fontLink.rel = 'stylesheet';
+    document.head.appendChild(fontLink);
 
-// Inject the drawer script
-const script = document.createElement('script');
-script.src = chrome.runtime.getURL('drawer.js');
-script.type = 'module';
-document.head.appendChild(script);
+    // Load drawer.js using a script tag
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('drawer.js');
+    script.type = 'module';
+    script.onload = () => {
+        console.log('drawer.js loaded successfully');
+        if (typeof createDrawer === 'function' && typeof Drawer === 'function') {
+            createDrawer();
+            window.drawerInstance = new Drawer();
+            console.log('Drawer instance created:', window.drawerInstance);
+        } else {
+            console.error('createDrawer or Drawer not found in drawer.js');
+        }
+    };
+    script.onerror = (error) => {
+        console.error('Error loading drawer.js:', error);
+    };
+    (document.head || document.documentElement).appendChild(script);
 
-// Listen for messages from the drawer
-window.addEventListener('message', function(event) {
-    if (event.data.action === 'authenticate') {
-        chrome.runtime.sendMessage({action: 'authenticate'}, function(response) {
-            window.postMessage({ action: 'authenticationResponse', ...response }, '*');
-        });
-    } else if (event.data.action === 'getFormFields') {
-        const formFields = getFormFields();
-        window.postMessage({ action: 'formFieldsResponse', fields: formFields }, '*');
-    } else if (event.data.action === 'autofillForm') {
-        autofillForm(event.data.formData);
-    }
-});
+    chrome.storage.local.get('authToken', function(result) {
+        if (result.authToken) {
+            fetchEmails();
+        } else {
+            document.getElementById('auth-section').style.display = 'block';
+        }
+    });
 
-// Listen for messages from the popup
+    // Inject the drawer CSS
+    const style = document.createElement('link');
+    style.rel = 'stylesheet';
+    style.type = 'text/css';
+    style.href = chrome.runtime.getURL('drawer.css');
+    style.onload = () => console.log('drawer.css loaded successfully');
+    style.onerror = (error) => console.error('Error loading drawer.css:', error);
+    document.head.appendChild(style);
+
+    // Listen for messages from the drawer
+    window.addEventListener('message', function(event) {
+        if (event.data.action === 'getEmails') {
+            chrome.runtime.sendMessage({action: 'getEmails'}, function(response) {
+                window.postMessage({ action: 'emailsResponse', emails: response.emails }, '*');
+            });
+        } else if (event.data.action === 'getFormFields') {
+            const formFields = getFormFields();
+            window.postMessage({ action: 'formFieldsResponse', fields: formFields }, '*');
+        } else if (event.data.action === 'autofillForm') {
+            autofillForm(event.data.formData);
+        }
+    });
+
+    // Notify background script that content script is ready
+    chrome.runtime.sendMessage({action: 'contentScriptReady'});
+
+    console.log('Content script initialized and ready');
+}
+
+// Run initialization when the DOM is fully loaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeContentScript);
+} else {
+    initializeContentScript();
+}
+
+// Listen for messages from the background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Received message in content script:', request);
 
-    if (request.action === "getFormFields") {
+    if (request.action === "toggleDrawer") {
+        console.log('Toggle drawer requested');
+        toggleDrawer();
+        // Make sure to send a response
+        sendResponse({success: true});
+    } else if (request.action === "getFormFields") {
         const formFields = getFormFields();
-        console.log('Sending form fields to popup:', formFields);
+        console.log('Sending form fields to background:', formFields);
         sendResponse(formFields);
     } else if (request.action === "autofillForm") {
         console.log('Autofilling form with data:', request.formData);
         autofillForm(request.formData);
+        sendResponse({success: true});
+    } else if (request.action === "updateEmails") {
+        console.log('Updating emails in drawer');
+        displayEmails(request.emails);
         sendResponse({success: true});
     }
 
@@ -124,3 +193,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 console.log('Content script loaded and ready');
+
+// Add this function
+function toggleDrawer() {
+    console.log('toggleDrawer called in content script');
+    if (window.drawerInstance) {
+        window.drawerInstance.toggleDrawer();
+    } else {
+        console.error('Drawer instance not found');
+        // If drawer instance is not found, try to create it
+        if (typeof createDrawer === 'function' && typeof Drawer === 'function') {
+            createDrawer();
+            window.drawerInstance = new Drawer();
+            window.drawerInstance.toggleDrawer();
+        } else {
+            console.error('createDrawer or Drawer not found. Make sure drawer.js is loaded.');
+        }
+    }
+}

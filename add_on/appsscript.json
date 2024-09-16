@@ -1,0 +1,30 @@
+{
+  "timeZone": "Africa/Cairo",
+  "dependencies": {
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.locale",
+    "https://www.googleapis.com/auth/gmail.addons.execute",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/userinfo.email"
+  ],
+  "addOns": {
+    "common": {
+      "name": "OttoFill",
+      "logoUrl": "https://cdn.prod.website-files.com/66678e39e335dfee5d24e244/66786820958354971d27aaea_Abstract%20icon.png",
+      "useLocaleFromApp": true,
+      "homepageTrigger": {
+        "runFunction": "onHomepage"
+      }
+    },
+    "gmail": {
+      "contextualTriggers": [{
+        "unconditional": {},
+        "onTriggerFunction": "onHomepage"
+      }]
+    }
+  }
+}

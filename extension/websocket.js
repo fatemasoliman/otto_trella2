@@ -1,6 +1,6 @@
 let socket;
 
-function connectWebSocket() {
+export function connectWebSocket() {
   socket = new WebSocket('ws://ec2-13-60-225-182.eu-north-1.compute.amazonaws.com:8080');
   
   socket.onopen = function(event) {
@@ -40,15 +40,14 @@ function connectWebSocket() {
   };
 }
 
-// Call this function when your extension starts
-connectWebSocket();
+export function keepAlive() {
+  chrome.runtime.getPlatformInfo(() => {});
+}
 
-// Listen for messages from content scripts or popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getEmails') {
-    chrome.storage.local.get('emails', function(result) {
-      sendResponse({ emails: result.emails || [] });
-    });
-    return true; // Indicates that the response is asynchronous
+// Reconnect WebSocket if it's closed
+setInterval(() => {
+  if (!socket || socket.readyState === WebSocket.CLOSED) {
+    console.log('WebSocket is closed. Attempting to reconnect...');
+    connectWebSocket();
   }
-});
+}, 60000); // Check every minute
