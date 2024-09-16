@@ -1,19 +1,25 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>OttoFill - Trella's Load Creation Assistant</title>
+    <title>OttoFill</title>
     <style>
-        body { width: 300px; padding: 10px; }
-        h1 { font-size: 18px; }
-        #emailList { margin-top: 10px; }
-        .email-item { margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-        .email-subject { font-weight: bold; }
-        .email-from { font-style: italic; }
+        body {
+            width: 300px;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+        }
+        button {
+            width: 100%;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
-    <h1>OttoFill Emails</h1>
-    <div id="emailList"></div>
+    <h2>OttoFill</h2>
+    <button id="login-button">Login</button>
+    <div id="user-info"></div>
+    <div id="email-list"></div>
+    <button id="ottofill-button" style="display: none;">OttoFill</button>
     <script src="popup.js"></script>
 </body>
 </html>

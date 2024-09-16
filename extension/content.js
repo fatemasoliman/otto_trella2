@@ -1,3 +1,5 @@
+console.log('Content script starting...');
+
 // Function to get form field names
 function getFormFields() {
     const fields = document.querySelectorAll('input[type="text"], input[type="date"], input[type="number"], select, textarea');
@@ -93,88 +95,155 @@ function autofillForm(formData) {
     }
 }
 
-async function initializeContentScript() {
-    console.log('Initializing content script...');
-    
-    // Add Lato font
-    const fontLink = document.createElement('link');
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap';
-    fontLink.rel = 'stylesheet';
-    document.head.appendChild(fontLink);
+class Drawer {
+    constructor() {
+        this.createDrawer();
+        this.initializeEventListeners();
+        this.selectedEmail = null;
+    }
 
-    // Load drawer.js using a script tag
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('drawer.js');
-    script.type = 'module';
-    script.onload = () => {
-        console.log('drawer.js loaded successfully');
-        if (typeof createDrawer === 'function' && typeof Drawer === 'function') {
-            createDrawer();
-            window.drawerInstance = new Drawer();
-            console.log('Drawer instance created:', window.drawerInstance);
-        } else {
-            console.error('createDrawer or Drawer not found in drawer.js');
+    createDrawer() {
+        const drawerHTML = `
+            <div id="ottofill-drawer" class="drawer">
+                <div class="drawer-content">
+                    <h2>OttoFill</h2>
+                    <button id="login-button">Login</button>
+                    <div id="user-info"></div>
+                    <div id="email-list"></div>
+                    <div id="email-preview"></div>
+                    <button id="ottofill-button" style="display: none;">OttoFill</button>
+                </div>
+            </div>
+            <div id="drawer-tab"></div>
+        `;
+
+        const drawerContainer = document.createElement('div');
+        drawerContainer.id = 'ottofill-container';
+        drawerContainer.innerHTML = drawerHTML;
+        document.body.appendChild(drawerContainer);
+
+        this.drawer = document.getElementById('ottofill-drawer');
+        this.tab = document.getElementById('drawer-tab');
+    }
+
+    initializeEventListeners() {
+        const loginButton = document.getElementById('login-button');
+        const ottoFillButton = document.getElementById('ottofill-button');
+        
+        loginButton.addEventListener('click', () => this.handleLogin());
+        ottoFillButton.addEventListener('click', () => this.handleOttoFill());
+        this.tab.addEventListener('click', () => this.toggleDrawer());
+
+        document.getElementById('email-list').addEventListener('click', (e) => {
+            if (e.target.tagName === 'LI') {
+                this.selectEmail(e.target.dataset.emailId);
+            }
+        });
+    }
+
+    toggleDrawer() {
+        this.drawer.classList.toggle('open');
+        this.tab.classList.toggle('open');
+    }
+
+    handleLogin() {
+        console.log('Login button clicked');
+        chrome.runtime.sendMessage({action: 'authenticate'}, (response) => {
+            console.log('Received authentication response:', response);
+            if (response && response.token) {
+                console.log('Authentication successful');
+                this.updateUIForLoggedInUser();
+                this.fetchEmails();
+            } else {
+                console.error('Authentication failed:', response.error);
+                alert('Login failed. Please try again.');
+            }
+        });
+    }
+
+    updateUIForLoggedInUser() {
+        const userInfo = document.getElementById('user-info');
+        const loginButton = document.getElementById('login-button');
+        const ottoFillButton = document.getElementById('ottofill-button');
+
+        userInfo.textContent = 'Logged in';
+        loginButton.style.display = 'none';
+        ottoFillButton.style.display = 'block';
+    }
+
+    fetchEmails() {
+        chrome.runtime.sendMessage({action: 'getEmails'}, (response) => {
+            if (response.emails) {
+                this.displayEmails(response.emails);
+            }
+        });
+    }
+
+    displayEmails(emails) {
+        const emailList = document.getElementById('email-list');
+        emailList.innerHTML = '';
+        emails.forEach(email => {
+            const li = document.createElement('li');
+            li.textContent = email.subject;
+            li.dataset.emailId = email.id;
+            emailList.appendChild(li);
+        });
+    }
+
+    selectEmail(emailId) {
+        chrome.runtime.sendMessage({action: 'getEmailDetails', emailId: emailId}, (response) => {
+            if (response.email) {
+                this.selectedEmail = response.email;
+                this.updateEmailPreview(response.email);
+                document.getElementById('ottofill-button').style.display = 'block';
+            } else {
+                console.error('Failed to get email details:', response.error);
+                alert(`Failed to get email details: ${response.error}`);
+            }
+        });
+    }
+
+    updateEmailPreview(email) {
+        const preview = document.getElementById('email-preview');
+        preview.innerHTML = `
+            <h3>${email.subject}</h3>
+            <p>From: ${email.from}</p>
+            <p>${email.body}</p>
+        `;
+    }
+
+    handleOttoFill() {
+        if (!this.selectedEmail) {
+            alert('Please select an email first');
+            return;
         }
-    };
-    script.onerror = (error) => {
-        console.error('Error loading drawer.js:', error);
-    };
-    (document.head || document.documentElement).appendChild(script);
 
-    chrome.storage.local.get('authToken', function(result) {
-        if (result.authToken) {
-            fetchEmails();
-        } else {
-            document.getElementById('auth-section').style.display = 'block';
-        }
-    });
-
-    // Inject the drawer CSS
-    const style = document.createElement('link');
-    style.rel = 'stylesheet';
-    style.type = 'text/css';
-    style.href = chrome.runtime.getURL('drawer.css');
-    style.onload = () => console.log('drawer.css loaded successfully');
-    style.onerror = (error) => console.error('Error loading drawer.css:', error);
-    document.head.appendChild(style);
-
-    // Listen for messages from the drawer
-    window.addEventListener('message', function(event) {
-        if (event.data.action === 'getEmails') {
-            chrome.runtime.sendMessage({action: 'getEmails'}, function(response) {
-                window.postMessage({ action: 'emailsResponse', emails: response.emails }, '*');
-            });
-        } else if (event.data.action === 'getFormFields') {
-            const formFields = getFormFields();
-            window.postMessage({ action: 'formFieldsResponse', fields: formFields }, '*');
-        } else if (event.data.action === 'autofillForm') {
-            autofillForm(event.data.formData);
-        }
-    });
-
-    // Notify background script that content script is ready
-    chrome.runtime.sendMessage({action: 'contentScriptReady'});
-
-    console.log('Content script initialized and ready');
+        const formFields = getFormFields();
+        chrome.runtime.sendMessage({
+            action: 'processChatGPT',
+            emailData: {
+                subject: this.selectedEmail.subject,
+                body: this.selectedEmail.body,
+                formFields: formFields
+            }
+        }, (response) => {
+            if (response.formData) {
+                autofillForm(response.formData);
+            } else if (response.error) {
+                console.error('Error processing with ChatGPT:', response.error);
+                alert('Error processing the email. Please try again.');
+            }
+        });
+    }
 }
 
-// Run initialization when the DOM is fully loaded
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeContentScript);
-} else {
-    initializeContentScript();
-}
+// Create and initialize the drawer
+const drawer = new Drawer();
 
-// Listen for messages from the background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Received message in content script:', request);
 
-    if (request.action === "toggleDrawer") {
-        console.log('Toggle drawer requested');
-        toggleDrawer();
-        // Make sure to send a response
-        sendResponse({success: true});
-    } else if (request.action === "getFormFields") {
+    if (request.action === "getFormFields") {
         const formFields = getFormFields();
         console.log('Sending form fields to background:', formFields);
         sendResponse(formFields);
@@ -182,32 +251,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.log('Autofilling form with data:', request.formData);
         autofillForm(request.formData);
         sendResponse({success: true});
-    } else if (request.action === "updateEmails") {
-        console.log('Updating emails in drawer');
-        displayEmails(request.emails);
-        sendResponse({success: true});
+    } else if (request.action === "toggleDrawer") {
+        drawer.toggleDrawer();
     }
 
-    // Return true to indicate that the response will be sent asynchronously
     return true;
 });
 
 console.log('Content script loaded and ready');
-
-// Add this function
-function toggleDrawer() {
-    console.log('toggleDrawer called in content script');
-    if (window.drawerInstance) {
-        window.drawerInstance.toggleDrawer();
-    } else {
-        console.error('Drawer instance not found');
-        // If drawer instance is not found, try to create it
-        if (typeof createDrawer === 'function' && typeof Drawer === 'function') {
-            createDrawer();
-            window.drawerInstance = new Drawer();
-            window.drawerInstance.toggleDrawer();
-        } else {
-            console.error('createDrawer or Drawer not found. Make sure drawer.js is loaded.');
-        }
-    }
-}

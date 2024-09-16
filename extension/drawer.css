@@ -227,3 +227,52 @@ button:disabled {
 #ottofill-drawer ::-webkit-scrollbar-thumb:hover {
   background: #0000CC;
 }
+
+#ottofill-container {
+  font-family: Arial, sans-serif;
+}
+
+#ottofill-drawer {
+  position: fixed;
+  top: 0;
+  right: -300px;
+  width: 300px;
+  height: 100%;
+  background-color: white;
+  box-shadow: -2px 0 5px rgba(0,0,0,0.2);
+  transition: right 0.3s ease-in-out;
+  z-index: 9999;
+}
+
+#ottofill-drawer.open {
+  right: 0;
+}
+
+.drawer-content {
+  padding: 20px;
+}
+
+#drawer-tab {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  width: 30px;
+  height: 60px;
+  background-color: blue;
+  cursor: pointer;
+  z-index: 10000;
+  transition: right 0.3s ease-in-out;
+}
+
+#drawer-tab.open {
+  right: 300px;
+}
+
+button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+#email-list {
+  margin-top: 20px;
+}

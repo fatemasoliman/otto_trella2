@@ -1,24 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "OttoFill - Trella's Load Creation Assistant",
+  "name": "OttoFill - Load Creation Assistant",
   "version": "1.0",
-  "description": "Trella's load creation assistant",
+  "description": "Load creation assistant",
   "permissions": [
     "storage",  
     "activeTab",
     "scripting"
   ],
   "host_permissions": [
-    "http://ec2-13-60-225-182.eu-north-1.compute.amazonaws.com:8080/",
-    "ws://ec2-13-60-225-182.eu-north-1.compute.amazonaws.com:8080/",
-    "https://api.openai.com/"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["https://ops.trella.app/upsert/jobs/*"],
-      "js": ["content.js"],
-      "run_at": "document_end"
-    }
+    "http://ec2-13-51-0-115.eu-north-1.compute.amazonaws.com:8080/*",
+    "ws://ec2-13-51-0-115.eu-north-1.compute.amazonaws.com:8080/*",
+    "https://api.openai.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -27,13 +20,12 @@
   "action": {
     "default_icon": "logo.png"
   },
-  "web_accessible_resources": [
+
+  "content_scripts": [
     {
-      "resources": ["drawer.js", "gpt_service.js", "auth_service.js", "drawer.css"],
-      "matches": ["https://ops.trella.app/*"]
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["drawer.css"]
     }
-  ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self';"
-  }
+  ]
 }
