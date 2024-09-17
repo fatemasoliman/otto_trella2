@@ -25,7 +25,7 @@
     {
       "matches": ["<all_urls>"],
       "css": ["drawer.css"],
-      "js": ["config.js", "gpt_service.js", "drawer.js"]
+      "js": ["drawer.js"]
     }
   ],
   "web_accessible_resources": [
@@ -40,7 +40,6 @@
   "oauth2": {
     "client_id": "1090398089996-r8me9q6306c0uc9kngkucrbvv99a1v6s.apps.googleusercontent.com",
     "scopes": [
-      "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/userinfo.email"
     ]
   },

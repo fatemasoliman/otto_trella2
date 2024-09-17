@@ -39,7 +39,22 @@ function createDrawer() {
   ottofillButton.addEventListener('click', handleOttoFill);
 
   const loginButton = document.getElementById('login-button');
-  loginButton.addEventListener('click', authenticate);
+  loginButton.addEventListener('click', () => {
+    console.log('Login button clicked');
+    chrome.runtime.sendMessage({ action: 'authenticateWithGoogle' }, response => {
+      console.log('Authentication response received in drawer.js:', response);
+      if (chrome.runtime.lastError) {
+        console.error('Chrome runtime error:', chrome.runtime.lastError);
+      }
+      if (response && response.success) {
+        console.log('Authentication successful, showing email list');
+        showEmailList();
+      } else {
+        console.error('Authentication failed:', response ? response.error : 'Unknown error');
+        alert('Authentication failed. Please try again. Error: ' + (response ? response.error : 'Unknown error'));
+      }
+    });
+  });
 
   checkAuthentication();
 }
@@ -73,6 +88,7 @@ function authenticate() {
       showEmailList();
     } else {
       alert('Authentication failed: ' + (response.error || 'Unknown error'));
+      showLoginButton();
     }
   });
 }
@@ -133,42 +149,35 @@ function displayEmails(emails) {
 }
 
 async function selectEmail(id, messageId) {
-    try {
-        // First, fetch the email details
-        const emailResponse = await chrome.runtime.sendMessage({ action: 'getEmails' });
-        if (emailResponse.emails) {
-            selectedEmail = emailResponse.emails.find(email => email.id === id);
-            if (!selectedEmail) {
-                throw new Error('Email not found');
-            }
-        } else {
-            throw new Error('Failed to fetch email details');
-        }
-
-        // Then, fetch the email body using messageId
-        const bodyResponse = await chrome.runtime.sendMessage({ action: 'getEmailBody', messageId: messageId });
-        if (bodyResponse.error === 'reauthentication_required') {
-            alert('Your session has expired. Please sign in again.');
-            await authenticate();
-            // Retry fetching the email body after reauthentication
-            const retryBodyResponse = await chrome.runtime.sendMessage({ action: 'getEmailBody', messageId: messageId });
-            if (retryBodyResponse.body) {
-                selectedEmail.body = retryBodyResponse.body;
-            } else {
-                throw new Error('Failed to fetch email body after reauthentication');
-            }
-        } else if (bodyResponse.body) {
-            selectedEmail.body = bodyResponse.body;
-        } else {
-            throw new Error('Failed to fetch email body');
-        }
-
-        displayEmailPreview(selectedEmail);
-        document.getElementById('ottofill-button').disabled = false;
-    } catch (error) {
-        console.error('Error selecting email:', error);
-        alert('Failed to load email. Please try again.');
+  try {
+    // First, fetch the email details
+    const emailResponse = await chrome.runtime.sendMessage({ action: 'getEmails' });
+    if (emailResponse.emails) {
+      selectedEmail = emailResponse.emails.find(email => email.id === id);
+      if (!selectedEmail) {
+        throw new Error('Email not found');
+      }
+    } else {
+      throw new Error('Failed to fetch email details');
     }
+
+    // Then, fetch the email body using messageId
+    const bodyResponse = await chrome.runtime.sendMessage({ action: 'getEmailBody', messageId: messageId });
+    if (bodyResponse.error === 'Reauthentication required') {
+      handleReauthentication();
+      return;
+    } else if (bodyResponse.body) {
+      selectedEmail.body = bodyResponse.body;
+    } else {
+      throw new Error('Failed to fetch email body');
+    }
+
+    displayEmailPreview(selectedEmail);
+    document.getElementById('ottofill-button').disabled = false;
+  } catch (error) {
+    console.error('Error selecting email:', error);
+    alert('Failed to load email. Please try again.');
+  }
 }
 
 function displayEmailPreview(email) {
@@ -247,7 +256,8 @@ async function handleOttoFill() {
   ottofillButton.textContent = 'Processing...';
 
   const formFields = detectFormFields();
-  
+  console.log('Detected form fields:', formFields);
+
   try {
     const response = await new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -260,7 +270,7 @@ async function handleOttoFill() {
           subject: selectedEmail.subject,
           body: selectedEmail.body,
           formFields: formFields,
-          url: window.location.href // Add the current page URL
+          url: window.location.href
         }
       }, (response) => {
         clearTimeout(timeoutId);
@@ -274,12 +284,14 @@ async function handleOttoFill() {
 
     console.log('Response from ChatGPT:', response);
 
-    if (response.formData && Array.isArray(response.formData)) {
-      chatGPTResponse = { loads: response.formData };
-      currentLoadIndex = 0;
-      showLoadSelector();
-    } else if (response.formData) {
-      await fillForm(response.formData);
+    if (response.formData) {
+      let formDataToFill;
+      if (Array.isArray(response.formData) && response.formData.length > 0) {
+        formDataToFill = response.formData[0]; // Take the first object if it's an array
+      } else {
+        formDataToFill = response.formData;
+      }
+      await fillForm(formDataToFill, formFields);
       console.log('Form filling completed');
       alert('Form filled successfully! Check the console for any fields that may not have been visible.');
     } else if (response.error) {
@@ -359,29 +371,59 @@ function updateLoadSelector() {
   }
 }
 
-async function fillForm(formData) {
+async function fillForm(formData, formFields) {
+  console.log('Starting form fill. Form data:', formData);
+  console.log('Form fields:', formFields);
+
+  // Flatten the formData if it's an array with a single object
+  if (Array.isArray(formData) && formData.length === 1) {
+    formData = formData[0];
+  }
+
   for (const [key, value] of Object.entries(formData)) {
-    let elements = [];
-    if (!isNaN(key)) {
-      // If the key is a number, try to find an element with that index
-      const allInputs = document.querySelectorAll('input, select, textarea');
-      if (allInputs[parseInt(key) - 1]) {  // Subtract 1 because the keys start from 1
-        elements = [allInputs[parseInt(key) - 1]];
+    console.log(`Attempting to fill field ${key} with value "${value}"`);
+
+    // Find the matching form field
+    const field = formFields.find(f => f.label.toLowerCase() === key.toLowerCase());
+
+    if (field) {
+      console.log(`Matched field:`, field);
+
+      const element = field.element;
+
+      if (element && !element.hidden && element.style.display !== 'none' && element.type !== 'hidden') {
+        console.log(`Found element for field:`, element);
+        
+        // Add some basic validation
+        if (field.type === 'number' && isNaN(value)) {
+          console.warn(`Warning: Non-numeric value "${value}" for number field ${field.label}`);
+        }
+        if (field.label.toLowerCase().includes('date') && !/^\d{1,2}$/.test(value)) {
+          console.warn(`Warning: Possible incorrect date format "${value}" for field ${field.label}`);
+        }
+        
+        await fillFormField(element, value);
+        console.log(`Field ${field.label} filled with value: ${value}`);
+      } else {
+        console.log(`No visible element found for field: ${field.label}`);
       }
     } else {
-      // Use the original selector for non-numeric keys
-      elements = document.querySelectorAll(`input[name="${key}"], select[name="${key}"], textarea[name="${key}"], input#${key}, select#${key}, textarea#${key}`);
-    }
-    
-    for (const element of elements) {
-      await fillFormField(element, value);
+      console.log(`No matching field found for key: ${key}`);
     }
   }
   console.log('Form filling completed');
-  alert('Form filled successfully! Check the console for any fields that may not have been visible.');
+  alert('Form filling attempt completed. Please check the console for details and verify the filled information.');
 }
 
 async function fillFormField(element, value) {
+  console.log(`Filling field:`, element);
+  console.log(`With value:`, value);
+
+  if (element.type === 'file') {
+    console.log(`Ignoring file input: ${element.name || element.id}`);
+    return;
+  }
+
   if (element.tagName === 'SELECT') {
     await handleSelect(element, value);
   } else if (element.type === 'checkbox' || element.type === 'radio') {
@@ -389,6 +431,8 @@ async function fillFormField(element, value) {
   } else {
     element.value = value;
   }
+
+  console.log(`Field value after setting:`, element.value);
 
   // Dispatch events
   element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -401,16 +445,28 @@ async function fillFormField(element, value) {
 }
 
 function handleSelect(selectElement, value) {
-  const option = Array.from(selectElement.options).find(opt => 
-    opt.text.toLowerCase().includes(value.toLowerCase())
-  );
-
-  if (option) {
-    selectElement.value = option.value;
-    selectElement.dispatchEvent(new Event('change', { bubbles: true }));
+  if (value === '' || value.toLowerCase() === 'select first option') {
+    // Select the first option
+    if (selectElement.options.length > 0) {
+      selectElement.selectedIndex = 0;
+    }
   } else {
-    console.log(`No matching option found for ${selectElement.name || selectElement.id} with value ${value}`);
+    const option = Array.from(selectElement.options).find(opt => 
+      opt.text.toLowerCase().includes(value.toLowerCase())
+    );
+
+    if (option) {
+      selectElement.value = option.value;
+    } else {
+      console.log(`No matching option found for ${selectElement.name || selectElement.id} with value ${value}`);
+      // If no match is found, select the first option
+      if (selectElement.options.length > 0) {
+        selectElement.selectedIndex = 0;
+      }
+    }
   }
+
+  selectElement.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function handleCheckboxOrRadio(element, value) {
@@ -427,31 +483,6 @@ function isElementInViewport(el) {
     rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
     rect.right <= (window.innerWidth || document.documentElement.clientWidth)
   );
-}
-
-function detectFormFields() {
-  const inputs = document.querySelectorAll('input, select, textarea');
-  return Array.from(inputs).map(input => {
-    let label = '';
-    if (input.labels && input.labels.length > 0) {
-      label = input.labels[0].textContent;
-    } else if (input.getAttribute('placeholder')) {
-      label = input.getAttribute('placeholder');
-    } else if (input.getAttribute('name')) {
-      label = input.getAttribute('name');
-    } else if (input.getAttribute('id')) {
-      label = input.getAttribute('id');
-    } else {
-      label = 'Unlabeled field';
-    }
-    
-    return {
-      type: input.type || 'text',
-      label: label.trim(),
-      id: input.id || '',
-      name: input.name || ''
-    };
-  });
 }
 
 function toggleDrawer() {
@@ -484,6 +515,42 @@ function stopResize() {
   isResizing = false;
   document.removeEventListener('mousemove', resize);
   document.removeEventListener('mouseup', stopResize);
+}
+
+function detectFormFields() {
+  const inputs = document.querySelectorAll('input:not([type="hidden"]), select, textarea');
+  return Array.from(inputs)
+    .filter(input => {
+      const isVisible = !input.hidden && 
+                        input.style.display !== 'none' && 
+                        input.type !== 'hidden' &&
+                        input.offsetParent !== null &&
+                        input.type !== 'file';
+      return isVisible;
+    })
+    .map((input, index) => {
+      let label = '';
+      if (input.labels && input.labels.length > 0) {
+        label = input.labels[0].textContent.trim();
+      } else if (input.getAttribute('placeholder')) {
+        label = input.getAttribute('placeholder').trim();
+      } else if (input.getAttribute('name')) {
+        label = input.getAttribute('name').trim();
+      } else if (input.getAttribute('id')) {
+        label = input.getAttribute('id').trim();
+      } else {
+        label = 'Unlabeled field';
+      }
+      
+      return {
+        index: index + 1,
+        type: input.type || 'text',
+        label: label,
+        id: input.id || '',
+        name: input.name || '',
+        element: input
+      };
+    });
 }
 
 async function markEmailAsDone(id) {
@@ -546,7 +613,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({status: 'ready'});
   } else if (request.action === 'toggleDrawer') {
     toggleDrawer();
+  } else if (request.action === 'requireReauth') {
+    handleReauthentication();
   }
 });
+
+function handleReauthentication() {
+  alert('Your session has expired. Please log in again.');
+  showLoginButton();
+}
 
 createDrawer();

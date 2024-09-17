@@ -11,86 +11,121 @@ let gapiInitialized = false;
 let gisInitialized = false;
 let tokenClient;
 
+// Add this new function at the beginning of the file
+function ensureContentScriptLoaded(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, {action: 'ping'}, response => {
+      if (chrome.runtime.lastError) {
+        console.log('Content script not loaded, attempting to inject');
+        chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          files: ['drawer.js']
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('Error injecting content script:', chrome.runtime.lastError);
+            reject(chrome.runtime.lastError);
+          } else {
+            console.log('Content script injected successfully');
+            setTimeout(resolve, 100);
+          }
+        });
+      } else {
+        console.log('Content script already loaded');
+        resolve();
+      }
+    });
+  });
+}
+
+// Modify the existing chrome.runtime.onMessage listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('Received message in background:', request);
-    if (request.action === 'authenticateWithGoogle') {
-        authenticateWithGoogle()
-            .then(response => {
-                console.log('Authentication response:', response);
-                sendResponse(response);
-            })
-            .catch(error => {
-                console.error('Authentication failed:', error);
-                sendResponse({success: false, error: error.message});
-            });
-        return true; // Indicates that the response is asynchronous
-    } else if (request.action === 'getEmails') {
-        fetchEmailIdsFromServer()
-            .then(emails => {
-                console.log('Sending emails to content script:', emails); // Add this line
-                sendResponse({emails: emails});
-            })
-            .catch(error => sendResponse({error: error.message}));
-        return true;
-    } else if (request.action === 'getEmailBody') {
-        console.log('Fetching email body for messageId:', request.messageId); // Add this line
-        fetchEmailBodyFromGmail(request.messageId)
-            .then(body => sendResponse({body: body}))
-            .catch(error => {
-                if (error.message === 'Not authenticated') {
-                    sendResponse({error: 'reauthentication_required'});
-                } else {
-                    sendResponse({error: error.message});
-                }
-            });
-        return true;
-    } else if (request.action === 'processChatGPT') {
-        processWithChatGPT(request.emailData)
-            .then(response => {
-                console.log('Sending response back to content script:', response);
-                sendResponse(response);
-            })
-            .catch(error => {
-                console.error('Error in processWithChatGPT:', error);
-                sendResponse({error: error.message});
-            });
-        return true; // Indicates that the response is asynchronous
-    } else if (request.action === 'contentScriptReady') {
-        if (sender.tab && sender.tab.id) {
-            contentScriptReady.add(sender.tab.id);
-            console.log(`Content script ready in tab ${sender.tab.id}`);
+  console.log('Received message in background:', request);
+  
+  if (request.action === 'authenticateWithGoogle') {
+    authenticateWithGoogle()
+      .then(response => {
+        console.log('Authentication response:', response);
+        sendResponse(response);
+      })
+      .catch(error => {
+        console.error('Authentication failed:', error);
+        sendResponse({success: false, error: error.message});
+      });
+    return true; // Indicates that the response is asynchronous
+  } else if (request.action === 'getEmails') {
+    fetchEmailIdsFromServer()
+      .then(emails => {
+        console.log('Sending emails to content script:', emails);
+        sendResponse({emails: emails});
+      })
+      .catch(error => sendResponse({error: error.message}));
+    return true;
+  } else if (request.action === 'getEmailBody') {
+    console.log('Fetching email body for messageId:', request.messageId);
+    fetchEmailBodyFromGmail(request.messageId)
+      .then(body => sendResponse({body: body}))
+      .catch(error => {
+        if (error.message === 'Not authenticated') {
+          sendResponse({error: 'reauthentication_required'});
+        } else {
+          sendResponse({error: error.message});
         }
-    } else if (request.action === 'login') {
-        console.log('Login request received:', request);
-        login(request.username, request.password)
-            .then(response => {
-                console.log('Login response:', response);
-                sendResponse(response);
-            })
-            .catch(error => {
-                console.error('Login error:', error);
-                sendResponse({ success: false, message: error.message });
-            });
-        return true; // Indicates that the response is asynchronous
-    } else if (request.action === 'clearEmail') {
-        clearEmailOnServer(request.id)
-            .then(response => sendResponse(response))
-            .catch(error => sendResponse({success: false, error: error.message}));
-        return true;
-    } else if (request.action === 'markEmailAsDone') {
-        markEmailAsDoneOnServer(request.id)
-            .then(response => sendResponse(response))
-            .catch(error => sendResponse({success: false, error: error.message}));
-        return true;
+      });
+    return true;
+  } else if (request.action === 'processChatGPT') {
+    processWithChatGPT(request.emailData)
+      .then(response => {
+        console.log('Sending response back to content script:', response);
+        sendResponse(response);
+      })
+      .catch(error => {
+        console.error('Error in processWithChatGPT:', error);
+        sendResponse({error: error.message});
+      });
+    return true; // Indicates that the response is asynchronous
+  } else if (request.action === 'contentScriptReady') {
+    if (sender.tab && sender.tab.id) {
+      contentScriptReady.add(sender.tab.id);
+      console.log(`Content script ready in tab ${sender.tab.id}`);
     }
+  } else if (request.action === 'login') {
+    console.log('Login request received:', request);
+    login(request.username, request.password)
+      .then(response => {
+        console.log('Login response:', response);
+        sendResponse(response);
+      })
+      .catch(error => {
+        console.error('Login error:', error);
+        sendResponse({ success: false, message: error.message });
+      });
+    return true; // Indicates that the response is asynchronous
+  } else if (request.action === 'clearEmail') {
+    clearEmailOnServer(request.id)
+      .then(response => sendResponse(response))
+      .catch(error => sendResponse({success: false, error: error.message}));
+    return true;
+  } else if (request.action === 'markEmailAsDone') {
+    markEmailAsDoneOnServer(request.id)
+      .then(response => sendResponse(response))
+      .catch(error => sendResponse({success: false, error: error.message}));
+    return true;
+  }
 });
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('OttoFill extension installed');
 });
 
+// Modify the chrome.action.onClicked listener
 chrome.action.onClicked.addListener((tab) => {
-  injectContentScriptIfNeeded(tab.id);
+  ensureContentScriptLoaded(tab.id)
+    .then(() => {
+      chrome.tabs.sendMessage(tab.id, { action: 'toggleDrawer' });
+    })
+    .catch(error => {
+      console.error('Failed to ensure content script is loaded:', error);
+    });
 });
 
 function injectContentScriptIfNeeded(tabId) {
@@ -130,32 +165,39 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 async function authenticateWithGoogle() {
-    console.log('Authenticating user with Google...');
-    return new Promise((resolve, reject) => {
-        chrome.identity.getAuthToken({ interactive: true }, function(token) {
-            if (chrome.runtime.lastError) {
-                console.error('Authentication failed:', chrome.runtime.lastError);
-                reject(chrome.runtime.lastError);
-            } else {
-                console.log('Authentication successful, token:', token);
-                // Fetch user email
-                fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    chrome.storage.local.set({ authToken: token, userEmail: data.email }, () => {
-                        console.log('Token and email saved to storage');
-                        resolve({ success: true, email: data.email });
-                    });
-                })
-                .catch(error => {
-                    console.error('Error fetching user info:', error);
-                    reject(error);
-                });
-            }
+  console.log('Authenticating user with Google...');
+  await clearAuthToken(); // Clear existing token
+  return new Promise((resolve, reject) => {
+    chrome.identity.getAuthToken({ interactive: true }, function(token) {
+      if (chrome.runtime.lastError) {
+        console.error('Authentication failed:', chrome.runtime.lastError);
+        reject(chrome.runtime.lastError);
+      } else {
+        console.log('Authentication successful, token received');
+        // Fetch user email
+        fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('User info received:', data);
+          chrome.storage.local.set({ authToken: token, userEmail: data.email }, () => {
+            console.log('Token and email saved to storage');
+            resolve({ success: true, email: data.email });
+          });
+        })
+        .catch(error => {
+          console.error('Error fetching user info:', error);
+          reject(error);
         });
+      }
     });
+  });
 }
 
 async function fetchEmailIdsFromServer() {
@@ -307,8 +349,8 @@ function decodeEmailBody(message) {
 async function processWithChatGPT(emailData) {
     console.log('Processing with OpenAI Assistant. Email data:', emailData);
     
-    const formFieldsDescription = emailData.formFields.map((field, index) => 
-        `${index + 1}. ${field.label || field.name} (${field.type})`
+    const formFieldsDescription = emailData.formFields.map(field => 
+        `${field.index}. ${field.label || field.name} (${field.type})`
     ).join('\n');
 
     const prompt = `
@@ -320,12 +362,35 @@ async function processWithChatGPT(emailData) {
         Extract and format the following details to fill these form fields:
         ${formFieldsDescription}
 
-        Respond with a JSON object where the keys are the field numbers (1, 2, 3, etc.) and the values are the extracted information.
-        If you can't find information for a field, leave it as an empty string.
+        You are an assistant for a logistics service provider specializing in Import/Export in Egypt. Your job is to create new loads (also known as bookings) by taking an email thread and the relevant form fields as an input and extracting the relevant data.
+Some values may not be present in the email, if not found, leave blank. 
+The shipper is the entity that is requesting the booking or the load. this is usually a freight forwarder or shipping line or other logistics service provider  that is requesting the load on behalf of their customer. 
 
-        Important: You can only have one container ID per load. If there are multiple container ID's, then respond with an array of JSON objects, where each element is a load.
+Always leave the broker field blank
 
-        Consider the context of the page URL when extracting and formatting the information.
+The container ID is a unique sequence made up of 4 letters and 7 numbers. If there are multiple container IDs, separate them with a space. The number of trucks should be equal to less than the number of containers. 
+
+For shipper, truck type, commodity, shipping line, container type, your answer can only be one of the following values in the lists below. 
+
+You can only have one container type and truck type per load.  If there are multiple container types or truck types, then respond with an array of JSON objects, where each element is a load. 
+
+For export loads, the gate out date is 24 hours before the pickup date and the gate in date is 24 hours after. For import loads, the gate in date is 24 hours before the pickup date and the gate out date is 24 hours after. Identify if the load is import/export from the provided URL. 
+
+
+Here's a list of possible commodities, do not respond with a commodity that is not in this list: Agricultural Waste,Barrels,Batteries,Beauty Products,Beet,Bitumen,Building Material,Cables,Carton,Cement,Ceramics,Chemicals,Coal,Corn,Crushed Stones,Dates,Deadhaul - empty,Detergents,Dolomite Powder,Electrical Appliances,Empty Containers,Equipment,Fertilizers,Fiber glasses,Fizzy Drinks,FMCG,Fridges,Frozen Food,Fruits,Glass,Grapes,Gravel,Gypsum,Iron Dust,Iron Ore,Iron Oxide,Iron Rolls,MDF,Medical equipments,Medications,Metal,Oils,Paper,Paper Bags,Parcels,Pipes,Plastics,Polymer Bags,Potatoes,Powder Paint,Raw Material,Salt,Sand,Silica Sand,Slag,Soya Bean Seeds,Spare Parts,Steel bars,Steel Products,Sugar,Sulphur,Sunflower Seeds,Textiles,Tires,Vegetables,Water,Wheat,Wood
+
+here's a list of possible container types:  20 Dry,20 Dry Heavy,40 Dry,45 Dry,Dry 2x20,Dry 40 High Cube,Flat 20,Flat 40,Open Top 20,Open Top 40,Reefer 20,Reefer 2x20,Reefer 40,Refeer 40 High Cube
+
+
+here's a list of possible shippers,  do not respond with a shipper that is not in this list: ACMA for Chemicals & Mining,Al Hussein International - Ports,ALKATHER LOGISTICS,All in Shipping Services,Aramex,ARKAS,Arma Food Industries,Arma Oils,Arma Soap & Detergents,Arma Soaps and Detegrents,Art ceramic,Ascom,Ascom Carbonate & Chemical Manufacturing,Barakat Shipping Co,Barakat Shipping Co.,Belmarine Egypt Ltd.,Blue Ocean Logistics,Ceramica Cleopatra,Ceva Egypt,City Logistics Solutions,Creative For Shipping and Logistics,Demo Shipper 2,Demo Shipper - 44,DHL,DHL Food logistics Egypt,Directions Ltd.,Dispatch Global Logistics,DP WORLD,Eddygypt Giordano Poultry Plast.,EGCT,Egyptian International Shipping Agencies & Services(EISAS),Egytrans,El Araby Co. For Cooking Appliances,EL ARABY CO FOR ENGINEERING INDUSTRIES,El Araby Co. For Trading & Manufac,El Araby Group,El Rashidi El Mizan Confectionery,ESG,Everest Egypt,Farm Fruits For Agricultural Investment,First choice for export fruits & vegetables,Flex P Films,ForeFront Trading and Export,FreePL Ports,Fruit Valley Company For Agricultural Investment,GIZA SEEDS & HERBS,Global Link,Globelink,Green Egypt Co. For Agricultural Investment,Hamburg SUD,Hapag Lloyd Egypt,Hero,ICAPP,International shipping agency,Karl Gross,Lasheen Plast,Lasheen Plastics Industries,LATT,LATT Logistics Cairo,LATT Logistics - Cairo,LG Electronics Egypt S.A.E,Lina For Land Reclamation,Link Cargo,Maersk A/S,Maersk Logistics and Services Egypt LTD,Maersk L&S Egypt Free Zone,Mansour Chevrolet Ports,Mantra Automotive Co.,MESCO,MIL,M.I.L,Milmar Shipping Company,Misr Polymers Industries,Modern bitumode (SIKA),Modern Paper for Industry,MSK,Nautic Logistics,Neptune Global Logistics,Nowlun,Pack N Move,Pack-tec,Pan Marine Logistics Services,RGS-Middle East Carbon,RoMarine,Royal Logistics Services,Royal Med,Seafrigo,SHL Elmarwa,Sidra Line Egypt,Sigma For Logistics Services,SoudanCo,Speedway,Star Shine Logistics,Suez Gulf Logistics,Teconja Egypt,test_demo,THE ARAB DAIRY PRODUCTS CO PANDA,The House,Top logistics,Total Cargo Logistics,Transmar,United Farms,United Farms - Ports,United for developed Industries,United Seas Logistics,Venus Cargo,wakalex ports,Wall Street Egypt,Wessam Shipping Line & Logistics
+
+Here's a list of possible shipping lines,  do not respond with a shipping line that is not in this list: Admiral Shipping Line,APL,Arab shipping ,Arkas,B&G,CMA,COSCO,EFC,EVERGREEN,Hamburg Sud,Hapag-Lloyd,HLC,Inchcape,JAC,Kadmar,LATT,LBH,Maersk,Marina,Medcon,Messina,MLH,MSC,Ocean Express,ONE,OOCL,PIL,Rodymar,Safmarine ,Sealand,Tarros,Transmar,Turkon Line,Wan hai,YML,ZIM
+
+Choose the closest match in this list, do not choose options for commodity or truck types outside of this list 
+
+Return an array of JSONs
+
+
     `;
 
     console.log('Prompt sent to OpenAI Assistant:', prompt);
@@ -393,48 +458,52 @@ async function login(username, password) {
 }
 
 async function fetchEmailBodyFromGmail(messageId) {
-    console.log('Fetching email body for messageId:', messageId);
-    if (!messageId) {
-        throw new Error('Invalid messageId: ' + messageId);
+  console.log('Fetching email body for messageId:', messageId);
+  if (!messageId) {
+    throw new Error('Invalid messageId: ' + messageId);
+  }
+
+  async function attemptFetch(token) {
+    const response = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Unauthorized');
     }
 
-    async function attemptFetch(token) {
-        const response = await fetch(`https://www.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            },
-        });
-
-        if (response.status === 401) {
-            throw new Error('Unauthorized');
-        }
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Gmail API response:', response.status, errorText);
-            throw new Error(`Failed to fetch email body from Gmail: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return decodeEmailBody(data);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Gmail API response:', response.status, errorText);
+      throw new Error(`Failed to fetch email body from Gmail: ${response.statusText}`);
     }
 
-    try {
-        const { authToken } = await chrome.storage.local.get('authToken');
-        if (!authToken) {
-            throw new Error('Not authenticated');
-        }
+    const data = await response.json();
+    return decodeEmailBody(data);
+  }
 
-        return await attemptFetch(authToken);
-    } catch (error) {
-        if (error.message === 'Unauthorized') {
-            console.log('Token expired, refreshing...');
-            const newToken = await refreshAuthToken();
-            return await attemptFetch(newToken);
-        }
-        console.error('Error fetching email body:', error);
-        throw error;
+  try {
+    const { authToken } = await chrome.storage.local.get('authToken');
+    if (!authToken) {
+      throw new Error('Not authenticated');
     }
+
+    return await attemptFetch(authToken);
+  } catch (error) {
+    if (error.message === 'Unauthorized' || error.message === 'Not authenticated') {
+      console.log('Token expired or invalid, clearing and requesting re-authentication');
+      await clearAuthToken();
+      // Notify the content script to prompt for re-authentication
+      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        chrome.tabs.sendMessage(tabs[0].id, {action: "requireReauth"});
+      });
+      throw new Error('Reauthentication required');
+    }
+    console.error('Error fetching email body:', error);
+    throw error;
+  }
 }
 
 async function clearEmailOnServer(id) {
@@ -510,3 +579,16 @@ async function markEmailAsDoneOnServer(id) {
         throw error;
     }
 }
+
+function clearAuthToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(['authToken', 'userEmail'], () => {
+      console.log('Auth token and user email cleared');
+      resolve();
+    });
+  });
+}
+
+// You can call this function before attempting to authenticate again
+// await clearAuthToken();
+// Then call your authenticateWithGoogle function
