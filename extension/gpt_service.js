@@ -1,107 +1,90 @@
-import { config } from './config.js';
-
-const API_BASE_URL = 'https://api.openai.com/v1';
-const ASSISTANT_ID = 'asst_auGRoJqaRVySWahymKlPW90Q';
+import { CONFIG } from './config.js';
 
 export const GPTService = {
-    async getFormCompletion(prompt) {
-        try {
-            console.log('Starting OpenAI Assistant process...');
+  ASSISTANT_ID: 'asst_auGRoJqaRVySWahymKlPW90Q', 
 
-            // Create a thread
-            const thread = await this.createThread();
+  async createThread() {
+    const response = await fetch('https://api.openai.com/v1/threads', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'OpenAI-Beta': 'assistants=v1'
+      }
+    });
+    const data = await response.json();
+    return data.id;
+  },
 
-            // Add a message to the thread
-            await this.addMessageToThread(thread.id, prompt);
+  async addMessageToThread(threadId, content) {
+    await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'OpenAI-Beta': 'assistants=v1'
+      },
+      body: JSON.stringify({
+        role: 'user',
+        content: content
+      })
+    });
+  },
 
-            // Run the assistant
-            const run = await this.runAssistant(thread.id);
+  async runAssistant(threadId) {
+    const response = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'OpenAI-Beta': 'assistants=v1'
+      },
+      body: JSON.stringify({
+        assistant_id: this.ASSISTANT_ID
+      })
+    });
+    const data = await response.json();
+    return data.id;
+  },
 
-            // Wait for the run to complete
-            await this.waitForRunCompletion(thread.id, run.id);
+  async getRunStatus(threadId, runId) {
+    const response = await fetch(`https://api.openai.com/v1/threads/${threadId}/runs/${runId}`, {
+      headers: {
+        'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+        'OpenAI-Beta': 'assistants=v1'
+      }
+    });
+    const data = await response.json();
+    return data.status;
+  },
 
-            // Retrieve the assistant's response
-            const messages = await this.getThreadMessages(thread.id);
-            const assistantResponse = messages.data.find(msg => msg.role === 'assistant');
+  async getAssistantResponse(threadId) {
+    const response = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+      headers: {
+        'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+        'OpenAI-Beta': 'assistants=v1'
+      }
+    });
+    const data = await response.json();
+    return data.data[0].content[0].text.value;
+  },
 
-            if (!assistantResponse) {
-                throw new Error('No response from assistant');
-            }
+  async getFormCompletion(prompt) {
+    const threadId = await this.createThread();
+    await this.addMessageToThread(threadId, prompt);
+    const runId = await this.runAssistant(threadId);
 
-            console.log('Assistant response:', assistantResponse.content[0].text.value);
-            return JSON.parse(assistantResponse.content[0].text.value);
-        } catch (error) {
-            console.error('Error in GPTService:', error);
-            throw error;
-        }
-    },
+    let status;
+    do {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
+      status = await this.getRunStatus(threadId, runId);
+    } while (status !== 'completed' && status !== 'failed');
 
-    async createThread() {
-        const response = await fetch(`${API_BASE_URL}/threads`, {
-            method: 'POST',
-            headers: this.getHeaders(),
-        });
-        return this.handleResponse(response);
-    },
-
-    async addMessageToThread(threadId, content) {
-        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/messages`, {
-            method: 'POST',
-            headers: this.getHeaders(),
-            body: JSON.stringify({ role: 'user', content }),
-        });
-        return this.handleResponse(response);
-    },
-
-    async runAssistant(threadId) {
-        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/runs`, {
-            method: 'POST',
-            headers: this.getHeaders(),
-            body: JSON.stringify({ assistant_id: ASSISTANT_ID }),
-        });
-        return this.handleResponse(response);
-    },
-
-    async waitForRunCompletion(threadId, runId) {
-        let run;
-        do {
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
-            run = await this.getRunStatus(threadId, runId);
-        } while (run.status === 'queued' || run.status === 'in_progress');
-
-        if (run.status !== 'completed') {
-            throw new Error(`Run failed with status: ${run.status}`);
-        }
-    },
-
-    async getRunStatus(threadId, runId) {
-        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/runs/${runId}`, {
-            headers: this.getHeaders(),
-        });
-        return this.handleResponse(response);
-    },
-
-    async getThreadMessages(threadId) {
-        const response = await fetch(`${API_BASE_URL}/threads/${threadId}/messages`, {
-            headers: this.getHeaders(),
-        });
-        return this.handleResponse(response);
-    },
-
-    getHeaders() {
-        return {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.OPENAI_API_KEY}`,
-            'OpenAI-Beta': 'assistants=v1'
-        };
-    },
-
-    async handleResponse(response) {
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error('OpenAI API error response:', errorBody);
-            throw new Error(`HTTP error! status: ${response.status}, body: ${errorBody}`);
-        }
-        return response.json();
+    if (status === 'failed') {
+      throw new Error('Assistant run failed');
     }
+
+    const response = await this.getAssistantResponse(threadId);
+    return response; // Return the raw response
+  }
 };

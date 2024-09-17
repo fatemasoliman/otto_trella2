@@ -1,31 +1,51 @@
 {
   "manifest_version": 3,
-  "name": "OttoFill - Load Creation Assistant",
+  "name": "OttoFill Extension",
   "version": "1.0",
-  "description": "Load creation assistant",
+  "description": "Automate form filling with email data",
   "permissions": [
-    "storage",  
     "activeTab",
+    "storage",
+    "identity",
     "scripting"
   ],
   "host_permissions": [
-    "http://ec2-13-51-0-115.eu-north-1.compute.amazonaws.com:8080/*",
-    "ws://ec2-13-51-0-115.eu-north-1.compute.amazonaws.com:8080/*",
-    "https://api.openai.com/*"
+    "http://ec2-13-51-0-115.eu-north-1.compute.amazonaws.com:8080/",
+    "https://api.openai.com/",
+    "https://www.googleapis.com/"
   ],
+  "action": {
+    "default_icon": "logo.png"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-  "action": {
-    "default_icon": "logo.png"
-  },
-
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "css": ["drawer.css"]
+      "css": ["drawer.css"],
+      "js": ["config.js", "gpt_service.js", "drawer.js"]
     }
-  ]
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["config.js", "gpt_service.js", "logo.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "oauth2": {
+    "client_id": "1090398089996-r8me9q6306c0uc9kngkucrbvv99a1v6s.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/userinfo.email"
+    ]
+  },
+  "icons": {
+    "128": "logo.png"
+  },
+  "key": "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDX6CkMV2YXWKWziNkSUGeQaLG1Ditmoi50wBHnx15VTvbwRX9oI43geaMIKhp+ffUVC3s6gspdJgJkXK4pZ5vU/mC6TeAFofXONskgQRWZlbPMbJy2cuFU0inE50Q2Yczh5mYK9SACbikNEun+cwEEgUmuQnmtFJ1chdFL3vUZ1SXmpQ0bSutq9Z/6XciN+bOlNbbuljf0tc49cYz48lVnpggpJ5PqsWsdSrdu2zsWBp8r7PC616IP+O7KHp+19X48oLYmFUcaK5gixblfOCka41lT9e8B4KeJgWG4UmiwQ3oR5tZ+WA/8MhqykVI/Nn+tMb51R4VJL5lAIXeBqvvpAgMBAAECggEADY7DNRvaiftuZvhgQ9Qkt167pKuVHMbGYAfHmA8Jj2smpS6Csklj7q/0sDM5+AN00QjS3iO5uAuw+W27H1fQOJnDUoTyslKEmu8PG3q6ySrWCtovJQ3QXyvV+kquGoly/M8jopXYmA55fsasnDvLLpCSeIzYEymeOrcfI20xZZkX+6/IsU7Qr8d9q7cyYndMBUR9F5EzZK1Ic/bQh9XQEym/3G64/2M4XbBj+APrtyRMynmQDn/H2t7jQi0Vw795vvdw3hDqdFEJ2PP64Rroro6D6fMdpV+6v2ssRIuVZScxr2W2mrlF8H2slm0E56uOx/58W7rbOVBppsgMK8LXYQKBgQD1AqziqLSgwhMM9TJBjnk32jztoEb5yjs6IQHkVCmaMYpy/bRWRdRXk+QSxAVi0wnBKYwrBoat7BsPpl0Z1JrOg1e/J9q6M+40RnOjJdl8XKtjO5tOyA+raSjBzP+CJTYmkiX58se6HrP5R4nfYDRtibVc4hwnItZZSWjxywB4xQKBgQDhl03c1D2As2haK+Qw7Oa4eJ7QRQB4pcVyPBUjcKzeUWgTBcy6oWhvFuTm6aERrJz9mniq/kTdFU4/8xbVFFPqqvyV8LkBG2/kNrJPTbQo23bNTOAFgkNv4hpwFE5s55QYktNwvCzja439ABmc9nOsUFyNEIB9XeabCuT2HJSA1QKBgQCuB/tzeC/tLE1J2/SZmjDCGnNCuqEPlrUhIgbs/1cZnmzgJxNsYGdm2bacGb5Vpt975B4bBaSub1H9eMcSrPBVFfhC4HU949skKJLE5QKpkk1uzA0SFYsDz0tS9WDcOcBP/2mYM/noWxytSUJGd1hmIfXABx/GMLmebEVt0isAnQKBgDRMGD/ecBea/9EPpcn10ZLoW6Darj5J59kQtrHNmDW914u5Z3nIm2ZNf2lMtgtb4dUk715srdg27ToEB8IEAWRAmWfFM45fJvRX/cRGtkJWhlcXwENmrG2OlCRxgLDcisebmirjZOCf+X2yfT2XIL/MrXgCYFcv4psEzomDnKW1AoGAR+NWDpmNAV/l0IoF2saRSN9/y6ZzNNRSxX6lC0I2IxRzfs6e6eIiOyoJMamtpo1Ed6FfnHEY19GgZDAevf5B3PA3iHbnPoSGh58h6ObX6ZqWdpdWgKNyIKOKVv30oMEhX6qnpOQpe/7KO6e1Ebtk4d1Gm40fH8IozPNfGv4uD4o="
 }
