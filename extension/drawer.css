@@ -313,3 +313,151 @@ h2 {
 }
 
 /* ... (rest of the styles remain unchanged) */
+
+#login-button, #sign-out-button {
+  background-color: #f0f0f0;
+  color: #333;
+  border: 1px solid #ccc;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  display: inline-block;
+  margin: 10px auto;
+  box-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+#login-button:hover, #sign-out-button:hover {
+  background-color: #e0e0e0;
+}
+
+#login-button:active, #sign-out-button:active {
+  background-color: #d0d0d0;
+}
+
+#login-button::before {
+  content: none; /* Remove the Google logo */
+}
+
+#login-container, #sign-out-button-container {
+  text-align: center;
+}
+
+/* Remove any specific styles for #sign-out-button that were previously defined */
+
+/* ... (rest of the styles remain unchanged) */
+
+#sign-out-button {
+  background-color: #f0f0f0;
+  color: #333;
+  border: 1px solid #ccc;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  display: block;
+  margin: 10px auto;
+  box-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+#sign-out-button:hover {
+  background-color: #e0e0e0;
+}
+
+#sign-out-button:active {
+  background-color: #d0d0d0;
+}
+
+/* ... (new styles for the Ottofill load button) */
+
+.ottofill-load-button {
+  background-color: transparent;
+  color: var(--accent-color);
+  border: 1px solid var(--accent-color);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 10px;
+  transition: all 0.3s ease;
+  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+  width: auto;
+}
+
+.ottofill-load-button:hover {
+  background-color: rgba(0, 0, 255, 0.1);
+}
+
+.ottofill-load-button:active {
+  background-color: rgba(0, 0, 255, 0.2);
+}
+
+/* ... (new styles for the loads container) */
+
+#loads-container {
+  max-height: 60vh; /* Limit the height to 60% of the viewport height */
+  overflow-y: auto; /* Enable vertical scrolling */
+  margin-top: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.load-item {
+  background-color: var(--secondary-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.load-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.load-header h4 {
+  margin: 0;
+  color: var(--accent-color);
+  font-size: 16px;
+}
+
+.load-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.load-detail {
+  background-color: white;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 6px;
+  font-size: 11px;
+}
+
+.load-key {
+  font-weight: bold;
+  color: var(--accent-color);
+  margin-right: 4px;
+}
+
+.load-value {
+  word-break: break-word;
+}
+
+/* ... (rest of the styles remain unchanged) */

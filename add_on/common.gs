@@ -1,52 +1,93 @@
 var SERVER_URL = "http://ec2-13-51-0-115.eu-north-1.compute.amazonaws.com:8080";
 
 function onHomepage(e) {
+  console.log("onHomepage called");
   return createHomepageCard();
 }
 
 function createHomepageCard() {
+  console.log("Creating homepage card");
   var card = CardService.newCardBuilder();
   card.setHeader(CardService.newCardHeader().setTitle("OttoFill"));
   
-  var section = CardService.newCardSection();
-  section.addWidget(CardService.newTextButton()
-    .setText("Send Email to OttoFill")
-    .setOnClickAction(CardService.newAction().setFunctionName("triggerOttoFill")));
+  var actionSection = CardService.newCardSection();
+  actionSection.addWidget(CardService.newTextButton()
+    .setText("Add to Queue")
+    .setOnClickAction(CardService.newAction().setFunctionName("addToOttoQueue")));
   
-  card.addSection(section);
+  card.addSection(actionSection);
   
-  // Add saved emails section with a styled header
-  var savedEmailsSection = CardService.newCardSection();
-  
-  savedEmailsSection.addWidget(CardService.newTextParagraph()
-    .setText("<p align='center'><font color='#4285f4'><b>Saved Emails</b></font></p>"));
-  
-  // Fetch and display saved emails
-  var savedEmails = fetchSavedEmails();
-  console.log('Saved emails:', JSON.stringify(savedEmails));
-  
-  if (savedEmails.length > 0) {
-    savedEmails.forEach(function(email) {
-      savedEmailsSection.addWidget(CardService.newKeyValue()
-        .setTopLabel(email.subject)
-        .setContent(email.from)
-        .setBottomLabel(new Date(email.timestamp).toLocaleString()));
-    });
-  } else {
-    savedEmailsSection.addWidget(CardService.newTextParagraph().setText("No saved emails found."));
-  }
-  
+  var savedEmailsSection = createSavedEmailsSection();
   card.addSection(savedEmailsSection);
   
   return card.build();
 }
 
-function fetchSavedEmails() {
-  var url = SERVER_URL + "/email";
-  var userEmail = Session.getActiveUser().getEmail();
+function createSavedEmailsSection() {
+  console.log("Creating saved emails section");
+  var savedEmailsSection = CardService.newCardSection()
+    .setHeader("Saved Emails");
   
-  console.log('Fetching saved emails for user:', userEmail);
-  console.log('Request URL:', url);
+  try {
+    var savedEmails = fetchSavedEmails();
+    console.log("Fetched saved emails:", savedEmails);
+    if (savedEmails && savedEmails.length > 0) {
+      savedEmails.forEach(function(email) {
+        savedEmailsSection.addWidget(CardService.newKeyValue()
+          .setTopLabel(email.subject || 'No Subject')
+          .setContent(email.from || 'Unknown Sender')
+          .setBottomLabel(email.timestamp ? new Date(email.timestamp).toLocaleString() : 'Unknown Date')
+          .setOnClickAction(CardService.newAction()
+            .setFunctionName("previewEmail")
+            .setParameters({emailId: email.messageId})));
+      });
+    } else {
+      savedEmailsSection.addWidget(CardService.newTextParagraph().setText("No saved emails found."));
+    }
+  } catch (error) {
+    console.error('Error in createSavedEmailsSection:', error);
+    savedEmailsSection.addWidget(CardService.newTextParagraph().setText("Error loading saved emails. Please try again later."));
+  }
+  
+  return savedEmailsSection;
+}
+
+function previewEmail(e) {
+  var emailId = e.parameters.emailId;
+  var email = GmailApp.getMessageById(emailId);
+  
+  if (!email) {
+    return createErrorCard("Unable to retrieve email details.");
+  }
+  
+  var card = CardService.newCardBuilder();
+  card.setHeader(CardService.newCardHeader().setTitle("Email Preview"));
+  
+  var previewSection = CardService.newCardSection();
+  previewSection.addWidget(CardService.newKeyValue()
+    .setTopLabel("From")
+    .setContent(email.getFrom()));
+  previewSection.addWidget(CardService.newKeyValue()
+    .setTopLabel("Subject")
+    .setContent(email.getSubject()));
+  previewSection.addWidget(CardService.newKeyValue()
+    .setTopLabel("Date")
+    .setContent(email.getDate().toLocaleString()));
+  previewSection.addWidget(CardService.newTextParagraph()
+    .setText(email.getPlainBody().substring(0, 500) + "..."));
+  
+  card.addSection(previewSection);
+  
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().pushCard(card.build()))
+    .build();
+}
+
+function fetchSavedEmails() {
+  var userEmail = Session.getActiveUser().getEmail();
+  var url = SERVER_URL + "/email";
+  
+  console.log("Fetching saved emails for user:", userEmail);
   
   try {
     var options = {
@@ -56,216 +97,90 @@ function fetchSavedEmails() {
         'user-email': userEmail
       }
     };
+    
     var response = UrlFetchApp.fetch(url, options);
     var statusCode = response.getResponseCode();
     var contentText = response.getContentText();
     
-    console.log('Response status code:', statusCode);
-    console.log('Response content:', contentText);
+    console.log('Fetch response - Status Code:', statusCode, 'Content:', contentText);
     
     if (statusCode === 200) {
       var emails = JSON.parse(contentText);
-      console.log('Total emails received:', emails.length);
+      console.log('Parsed emails:', emails);
       return emails;
     } else {
       console.error('Error fetching emails. Status code:', statusCode, 'Response:', contentText);
       return [];
     }
   } catch (error) {
-    console.error('Error fetching saved emails:', error);
+    console.error('Error in fetchSavedEmails:', error);
     return [];
   }
 }
 
-function triggerOttoFill(e) {
-  console.log('triggerOttoFill called with event:', JSON.stringify(e));
-  
-  // Check if messageMetadata exists and has a messageId
-  if (!e.messageMetadata || !e.messageMetadata.messageId) {
-    console.error('No valid messageId found in the event object');
-    return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText("Error: Unable to retrieve message ID"))
-      .build();
-  }
-
-  var messageId = e.messageMetadata.messageId;
-  console.log('Retrieved messageId:', messageId);
-
-  try {
-    var message = GmailApp.getMessageById(messageId);
-    if (!message) {
-      throw new Error('Unable to retrieve message with ID: ' + messageId);
-    }
-
-    var userEmail = Session.getActiveUser().getEmail();
-    
-    var emailDetails = {
-      subject: message.getSubject(),
-      from: message.getFrom(),
-      timestamp: message.getDate().toISOString(),
-      body: message.getPlainBody().substring(0, 1000),
-      user: userEmail,
-      status: "new",  // Set the initial status to "new"
-      messageId: messageId
-    };
-
-    var url = SERVER_URL + "/email";
-    var options = {
-      'method': 'post',
-      'contentType': 'application/json',
-      'payload': JSON.stringify(emailDetails),
-      'muteHttpExceptions': true
-    };
-    
-    var response = UrlFetchApp.fetch(url, options);
-    var statusCode = response.getResponseCode();
-    var contentText = response.getContentText();
-    
-    if (statusCode === 200) {
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification().setText("Email details sent to OttoFill successfully!"))
-        .setNavigation(CardService.newNavigation().updateCard(createHomepageCard()))
-        .build();
-    } else {
-      throw new Error('Unexpected status code: ' + statusCode + '. Response: ' + contentText);
-    }
-  } catch (error) {
-    console.error('Error in triggerOttoFill:', error);
-    return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText("Failed to send email details to OttoFill. Error: " + error.message))
-      .build();
-  }
-}
-
 function addToOttoQueue(e) {
-  console.log('addToOttoQueue called with event:', JSON.stringify(e));
+  console.log("addToOttoQueue called", e);
+  var threadId = e.gmail ? e.gmail.threadId : 
+                 e.messageMetadata ? e.messageMetadata.threadId : 
+                 e.parameters ? e.parameters.threadId : null;
   
-  var messageId;
-  if (e.gmail && e.gmail.messageId) {
-    // Called from universal action
-    messageId = e.gmail.messageId;
-  } else if (e.messageMetadata && e.messageMetadata.messageId) {
-    // Called from contextual trigger
-    messageId = e.messageMetadata.messageId;
-  } else if (e.parameters && e.parameters.messageId) {
-    // Called from card action
-    messageId = e.parameters.messageId;
-  } else {
-    console.error('No valid messageId found in the event object');
-    return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText("Error: Unable to retrieve message ID"))
-      .build();
+  if (!threadId) {
+    console.error("No thread ID found");
+    return createErrorCard("Unable to retrieve thread ID");
   }
 
-  console.log('Retrieved messageId:', messageId);
-
   try {
-    var message = GmailApp.getMessageById(messageId);
-    if (!message) {
-      throw new Error('Unable to retrieve message with ID: ' + messageId);
+    var thread = GmailApp.getThreadById(threadId);
+    if (!thread) {
+      throw new Error('Unable to retrieve thread');
     }
 
-    var userEmail = Session.getActiveUser().getEmail();
-    
+    var firstMessage = thread.getMessages()[0]; // Get the first message in the thread
+    var messageId = firstMessage.getId();
+
     var emailDetails = {
-      subject: message.getSubject(),
-      from: message.getFrom(),
-      timestamp: message.getDate().toISOString(),
-      body: message.getPlainBody().substring(0, 1000),
-      user: userEmail,
+      subject: firstMessage.getSubject(),
+      from: firstMessage.getFrom(),
+      timestamp: firstMessage.getDate().toISOString(),
+      body: firstMessage.getPlainBody().substring(0, 1000),
+      user: Session.getActiveUser().getEmail(),
       status: "new",
       messageId: messageId
     };
 
-    var url = SERVER_URL + "/email";
-    var options = {
+    var response = UrlFetchApp.fetch(SERVER_URL + "/email", {
       'method': 'post',
       'contentType': 'application/json',
       'payload': JSON.stringify(emailDetails),
       'muteHttpExceptions': true
-    };
-    
-    var response = UrlFetchApp.fetch(url, options);
-    var statusCode = response.getResponseCode();
-    var contentText = response.getContentText();
-    
-    if (statusCode === 200) {
+    });
+
+    if (response.getResponseCode() === 200) {
+      console.log("Message added to queue successfully");
       return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification().setText("Message added to Otto Queue successfully!"))
+        .setNotification(CardService.newNotification().setText("Message added to Queue successfully!"))
+        .setNavigation(CardService.newNavigation().updateCard(createHomepageCard()))
         .build();
     } else {
-      throw new Error('Unexpected status code: ' + statusCode + '. Response: ' + contentText);
+      throw new Error('Unexpected response from server');
     }
   } catch (error) {
-    console.error('Error in addToOttoQueue:', error);
-    return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText("Failed to add message to Otto Queue. Error: " + error.message))
-      .build();
-  }
-}
-
-function viewSavedEmails(e) {
-  var userEmail = Session.getActiveUser().getEmail();
-  var url = SERVER_URL + "/email";
-  
-  try {
-    var response = UrlFetchApp.fetch(url);
-    var statusCode = response.getResponseCode();
-    var contentText = response.getContentText();
-    
-    if (statusCode === 200) {
-      var emails = JSON.parse(contentText);
-      var userEmails = emails.filter(function(email) {
-        return email.user === userEmail;
-      });
-      
-      var card = CardService.newCardBuilder();
-      card.setHeader(CardService.newCardHeader().setTitle("Saved Emails"));
-      
-      var section = CardService.newCardSection();
-      
-      if (userEmails.length > 0) {
-        userEmails.forEach(function(email) {
-          section.addWidget(CardService.newKeyValue()
-            .setTopLabel(email.subject)
-            .setContent(email.from)
-            .setBottomLabel(new Date(email.timestamp).toLocaleString()));
-        });
-      } else {
-        section.addWidget(CardService.newTextParagraph().setText("No saved emails found for " + userEmail));
-      }
-      
-      card.addSection(section);
-      
-      return card.build();
-    } else {
-      throw new Error('Unexpected status code: ' + statusCode + '. Response: ' + contentText);
-    }
-  } catch (error) {
-    console.error('Error retrieving saved emails:', error);
-    return CardService.newCardBuilder()
-      .setHeader(CardService.newCardHeader().setTitle("Error"))
-      .addSection(CardService.newCardSection()
-        .addWidget(CardService.newTextParagraph().setText("Failed to retrieve saved emails. Error: " + error.message)))
-      .build();
+    console.error("Error in addToOttoQueue:", error);
+    return createErrorCard("Failed to add message to Queue: " + error.message);
   }
 }
 
 function onGmailMessage(e) {
-  console.log('onGmailMessage triggered:', JSON.stringify(e));
-
   var accessToken = e.gmail.accessToken;
   GmailApp.setCurrentMessageAccessToken(accessToken);
-
-  var messageId = e.gmail.messageId;
 
   var card = CardService.newCardBuilder();
   card.setHeader(CardService.newCardHeader().setTitle("OttoFill Actions"));
 
   var section = CardService.newCardSection();
   section.addWidget(CardService.newTextButton()
-    .setText("Add to Otto Queue")
-    .setOnClickAction(CardService.newAction().setFunctionName("addToOttoQueue").setParameters({messageId: messageId})));
+    .setText("Add to Queue")
+    .setOnClickAction(CardService.newAction().setFunctionName("addToOttoQueue").setParameters({threadId: e.gmail.threadId})));
 
   card.addSection(section);
 
@@ -273,22 +188,18 @@ function onGmailMessage(e) {
 }
 
 function onGmailMessageOpen(e) {
-  console.log('onGmailMessageOpen triggered:', JSON.stringify(e));
+  return onGmailMessage(e);
+}
 
-  var accessToken = e.gmail.accessToken;
-  GmailApp.setCurrentMessageAccessToken(accessToken);
+function createSuccessCard(message) {
+  return CardService.newActionResponseBuilder()
+    .setNotification(CardService.newNotification().setText(message))
+    .setNavigation(CardService.newNavigation().updateCard(createHomepageCard()))
+    .build();
+}
 
-  var messageId = e.gmail.messageId;
-
-  var card = CardService.newCardBuilder();
-  card.setHeader(CardService.newCardHeader().setTitle("OttoFill"));
-
-  var section = CardService.newCardSection();
-  section.addWidget(CardService.newTextButton()
-    .setText("Add to Otto Queue")
-    .setOnClickAction(CardService.newAction().setFunctionName("addToOttoQueue").setParameters({messageId: messageId})));
-
-  card.addSection(section);
-
-  return card.build();
+function createErrorCard(message) {
+  return CardService.newActionResponseBuilder()
+    .setNotification(CardService.newNotification().setText(message))
+    .build();
 }

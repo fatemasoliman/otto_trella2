@@ -17,7 +17,7 @@ export const GPTService = {
   },
 
   async addMessageToThread(threadId, content) {
-    await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
+    const response = await fetch(`https://api.openai.com/v1/threads/${threadId}/messages`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
@@ -29,6 +29,8 @@ export const GPTService = {
         content: content
       })
     });
+    const data = await response.json();
+    return data.id; // Return the message ID
   },
 
   async runAssistant(threadId) {
@@ -66,25 +68,60 @@ export const GPTService = {
       }
     });
     const data = await response.json();
-    return data.data[0].content[0].text.value;
+    
+    console.log('Thread messages:', data);  // Log all messages for debugging
+
+    if (!data.data || data.data.length === 0) {
+      throw new Error('No messages found in the thread');
+    }
+
+    // Filter and sort assistant messages, getting the most recent one
+    const assistantMessages = data.data
+      .filter(message => message.role === 'assistant')
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    if (assistantMessages.length === 0) {
+      throw new Error('No assistant messages found in the thread');
+    }
+
+    const latestAssistantMessage = assistantMessages[0];
+    console.log('Latest assistant message:', latestAssistantMessage);
+
+    if (!latestAssistantMessage.content || latestAssistantMessage.content.length === 0 || !latestAssistantMessage.content[0].text) {
+      throw new Error('Invalid message content structure');
+    }
+
+    return latestAssistantMessage.content[0].text.value;
   },
 
-  async getFormCompletion(prompt) {
+  async getFormCompletion(prompt, isDropdownQuery = false) {
     const threadId = await this.createThread();
     await this.addMessageToThread(threadId, prompt);
     const runId = await this.runAssistant(threadId);
 
     let status;
+    let retries = 0;
+    const maxRetries = 4;
+    const retryDelay = 5000;
+
     do {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for 1 second
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
       status = await this.getRunStatus(threadId, runId);
-    } while (status !== 'completed' && status !== 'failed');
+      console.log('Run status:', status);
+      retries++;
+    } while (status !== 'completed' && status !== 'failed' && retries < maxRetries);
 
     if (status === 'failed') {
       throw new Error('Assistant run failed');
     }
 
+    if (status !== 'completed') {
+      throw new Error('Assistant run timed out');
+    }
+
     const response = await this.getAssistantResponse(threadId);
-    return response; // Return the raw response
+    console.log('Raw response from assistant:', response);
+
+    return response; // Return the raw response without any parsing
   }
 };

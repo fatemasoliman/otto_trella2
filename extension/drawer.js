@@ -13,7 +13,7 @@ function createDrawer() {
     <div class="drawer-content">
       <h2 class="ottofill-header">OttoFill</h2>
       <div id="login-container">
-        <button id="login-button">Log in with Gmail</button>
+        <button id="login-button">Sign in with Google</button>
       </div>
       <div id="email-container" style="display: none;">
         <div id="email-list-container">
@@ -25,7 +25,9 @@ function createDrawer() {
           <div id="preview-body"></div>
         </div>
       </div>
+      <div id="loads-container" style="display: none;"></div>
       <button id="ottofill-button" disabled>OttoFill</button>
+      <button id="sign-out-button" style="display: none;">Sign Out</button>
     </div>
   `;
 
@@ -39,58 +41,85 @@ function createDrawer() {
   ottofillButton.addEventListener('click', handleOttoFill);
 
   const loginButton = document.getElementById('login-button');
-  loginButton.addEventListener('click', () => {
-    console.log('Login button clicked');
-    chrome.runtime.sendMessage({ action: 'authenticateWithGoogle' }, response => {
-      console.log('Authentication response received in drawer.js:', response);
-      if (chrome.runtime.lastError) {
-        console.error('Chrome runtime error:', chrome.runtime.lastError);
-      }
-      if (response && response.success) {
-        console.log('Authentication successful, showing email list');
-        showEmailList();
-      } else {
-        console.error('Authentication failed:', response ? response.error : 'Unknown error');
-        alert('Authentication failed. Please try again. Error: ' + (response ? response.error : 'Unknown error'));
-      }
-    });
-  });
+  loginButton.addEventListener('click', handleLogin);
 
-  checkAuthentication();
-}
+  const signOutButton = document.getElementById('sign-out-button');
+  signOutButton.addEventListener('click', handleSignOut);
 
-function checkAuthentication() {
-  chrome.storage.local.get(['authToken', 'userEmail'], (result) => {
-    if (result.authToken && result.userEmail) {
-      currentUser = result.userEmail;
-      showEmailList();
-    } else {
-      showLoginButton();
-    }
-  });
+  checkAuthStatus();
 }
 
 function showLoginButton() {
   document.getElementById('login-container').style.display = 'block';
   document.getElementById('email-container').style.display = 'none';
+  document.getElementById('sign-out-button').style.display = 'none';
+  document.getElementById('ottofill-button').style.display = 'none';
 }
 
-function showEmailList() {
+async function showEmailList() {
   document.getElementById('login-container').style.display = 'none';
   document.getElementById('email-container').style.display = 'block';
-  fetchEmails();
+  document.getElementById('sign-out-button').style.display = 'block';
+  document.getElementById('ottofill-button').style.display = 'block';
+  await fetchEmails();
 }
 
-function authenticate() {
-  chrome.runtime.sendMessage({ action: 'authenticateWithGoogle' }, response => {
+async function handleSignOut() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'signOut' });
     if (response.success) {
-      currentUser = response.email;
-      showEmailList();
+      isAuthenticated = false;
+      currentUser = null;
+      selectedEmail = null;
+      const emailList = document.getElementById('emailList');
+      emailList.innerHTML = '';
+      showLoginButton();
+      alert('You have been signed out successfully.');
     } else {
-      alert('Authentication failed: ' + (response.error || 'Unknown error'));
+      throw new Error(response.error);
+    }
+  } catch (error) {
+    console.error('Error signing out:', error);
+    alert('An error occurred while signing out. Please try again.');
+  }
+}
+
+let isAuthenticated = false;
+
+async function checkAuthStatus() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getAuthStatus' });
+    if (response.isAuthenticated) {
+      isAuthenticated = true;
+      currentUser = response.email;
+      await showEmailList();
+    } else {
       showLoginButton();
     }
-  });
+  } catch (error) {
+    console.error('Error checking auth status:', error);
+    showLoginButton();
+  }
+}
+
+async function handleLogin() {
+  console.log('Login button clicked');
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'authenticateWithGoogle' });
+    console.log('Authentication response received in drawer.js:', response);
+    if (response && response.success) {
+      console.log('Authentication successful, showing email list');
+      isAuthenticated = true;
+      currentUser = response.email;
+      await showEmailList();
+    } else {
+      console.error('Authentication failed:', response ? response.error : 'Unknown error');
+      alert('Authentication failed. Please try again. Error: ' + (response ? response.error : 'Unknown error'));
+    }
+  } catch (error) {
+    console.error('Error during authentication:', error);
+    alert('An error occurred during authentication. Please try again.');
+  }
 }
 
 async function fetchEmails() {
@@ -98,14 +127,22 @@ async function fetchEmails() {
     const response = await chrome.runtime.sendMessage({ action: 'getEmails' });
     console.log('Fetched emails response:', response);
     if (response.emails) {
-      // Filter emails for the current user
-      const userEmails = response.emails.filter(email => email.user === currentUser);
-      displayEmails(userEmails);
-    } else {
+      displayEmails(response.emails);
+    } else if (response.error) {
       console.error('Failed to fetch emails:', response.error);
+      if (response.error.includes('Not authenticated')) {
+        isAuthenticated = false;
+        showLoginButton();
+      } else {
+        alert('Failed to fetch emails. Please try again.');
+      }
+    } else {
+      console.error('Unexpected response when fetching emails');
+      alert('An unexpected error occurred. Please try again.');
     }
   } catch (error) {
     console.error('Error fetching emails:', error);
+    alert('An error occurred while fetching emails. Please try again.');
   }
 }
 
@@ -150,8 +187,13 @@ function displayEmails(emails) {
 
 async function selectEmail(id, messageId) {
   try {
-    // First, fetch the email details
+    console.log(`Selecting email with id: ${id} and messageId: ${messageId}`);
+    
     const emailResponse = await chrome.runtime.sendMessage({ action: 'getEmails' });
+    if (emailResponse.error) {
+      throw new Error(emailResponse.error);
+    }
+    
     if (emailResponse.emails) {
       selectedEmail = emailResponse.emails.find(email => email.id === id);
       if (!selectedEmail) {
@@ -161,12 +203,12 @@ async function selectEmail(id, messageId) {
       throw new Error('Failed to fetch email details');
     }
 
-    // Then, fetch the email body using messageId
     const bodyResponse = await chrome.runtime.sendMessage({ action: 'getEmailBody', messageId: messageId });
-    if (bodyResponse.error === 'Reauthentication required') {
-      handleReauthentication();
-      return;
-    } else if (bodyResponse.body) {
+    if (bodyResponse.error) {
+      throw new Error(bodyResponse.error);
+    }
+    
+    if (bodyResponse.body) {
       selectedEmail.body = bodyResponse.body;
     } else {
       throw new Error('Failed to fetch email body');
@@ -176,7 +218,12 @@ async function selectEmail(id, messageId) {
     document.getElementById('ottofill-button').disabled = false;
   } catch (error) {
     console.error('Error selecting email:', error);
-    alert('Failed to load email. Please try again.');
+    if (error.message.includes('Not authenticated')) {
+      isAuthenticated = false;
+      showLoginButton();
+    } else {
+      alert('Failed to load email. Please try again. Error: ' + error.message);
+    }
   }
 }
 
@@ -188,25 +235,20 @@ function displayEmailPreview(email) {
   subjectElement.textContent = email.subject;
   fromElement.textContent = `From: ${email.from}`;
   
-  // Create a new div to hold the email content
   const contentDiv = document.createElement('div');
   
-  // Set the innerHTML of the new div to the email body
   contentDiv.innerHTML = email.body;
   
-  // Remove any potentially harmful scripts
   const scripts = contentDiv.getElementsByTagName('script');
   for (let i = scripts.length - 1; i >= 0; i--) {
     scripts[i].parentNode.removeChild(scripts[i]);
   }
   
-  // Remove existing style tags
   const styles = contentDiv.getElementsByTagName('style');
   for (let i = styles.length - 1; i >= 0; i--) {
     styles[i].parentNode.removeChild(styles[i]);
   }
   
-  // Create a new style element
   const style = document.createElement('style');
   style.textContent = `
     table { border-collapse: collapse; width: 100%; }
@@ -214,7 +256,6 @@ function displayEmailPreview(email) {
     th { background-color: #f2f2f2; }
   `;
   
-  // Append the style and content to the body element
   bodyElement.innerHTML = '';
   bodyElement.appendChild(style);
   bodyElement.appendChild(contentDiv);
@@ -231,9 +272,9 @@ function adjustPreviewHeight() {
 
   if (previewContainer.style.display !== 'none') {
     const containerHeight = emailContainer.offsetHeight;
-    const listHeight = containerHeight * 0.25; // 25% of the container height
+    const listHeight = containerHeight * 0.25;
     const buttonHeight = ottofillButton.offsetHeight;
-    const previewHeight = containerHeight - listHeight - buttonHeight - 30; // 30px for margins
+    const previewHeight = containerHeight - listHeight - buttonHeight - 30;
 
     listContainer.style.height = `${listHeight}px`;
     previewContainer.style.height = `${previewHeight}px`;
@@ -259,115 +300,101 @@ async function handleOttoFill() {
   console.log('Detected form fields:', formFields);
 
   try {
-    const response = await new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        reject(new Error('Request timed out'));
-      }, 30000); // 30 seconds timeout
+    const response = await sendToAssistant(selectedEmail, formFields);
+    console.log('Response from assistant:', response);
 
-      chrome.runtime.sendMessage({
-        action: 'processChatGPT',
-        emailData: {
-          subject: selectedEmail.subject,
-          body: selectedEmail.body,
-          formFields: formFields,
-          url: window.location.href
-        }
-      }, (response) => {
-        clearTimeout(timeoutId);
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else {
-          resolve(response);
-        }
-      });
-    });
-
-    console.log('Response from ChatGPT:', response);
-
-    if (response.formData) {
-      let formDataToFill;
-      if (Array.isArray(response.formData) && response.formData.length > 0) {
-        formDataToFill = response.formData[0]; // Take the first object if it's an array
-      } else {
-        formDataToFill = response.formData;
-      }
-      await fillForm(formDataToFill, formFields);
-      console.log('Form filling completed');
-      alert('Form filled successfully! Check the console for any fields that may not have been visible.');
-    } else if (response.error) {
+    if (response.error) {
       throw new Error(response.error);
+    }
+
+    if (Array.isArray(response.formData) && response.formData.length > 0) {
+      displayLoads(response.formData);
     } else {
-      throw new Error('Unexpected response from ChatGPT');
+      console.error('Unexpected response format from assistant');
+      alert('Received an unexpected response format. Please try again.');
     }
   } catch (error) {
-    console.error('Error processing with ChatGPT:', error);
-    alert(`Failed to process email with ChatGPT. Error: ${error.message}`);
+    console.error('Error processing with Assistant:', error);
+    alert(`Failed to process email with Assistant. Error: ${error.message}`);
   } finally {
     ottofillButton.disabled = false;
     ottofillButton.textContent = 'OttoFill';
   }
 }
 
-function showLoadSelector() {
-  const emailContainer = document.getElementById('email-container');
-  const emailPreviewContainer = document.getElementById('email-preview-container');
-  const loadSelectorContainer = document.createElement('div');
-  loadSelectorContainer.id = 'load-selector-container';
+function displayLoads(loads) {
+  const loadsContainer = document.getElementById('loads-container');
+  loadsContainer.innerHTML = '';
+  loadsContainer.style.display = 'block';
 
-  if (chatGPTResponse.loads.length > 1) {
-    // Multiple loads
-    loadSelectorContainer.innerHTML = `
-      <h3>Select a load to fill:</h3>
-      <ul id="load-list"></ul>
-      <button id="fill-selected-load">Fill Selected Load</button>
+  loads.forEach((load, index) => {
+    const loadElement = document.createElement('div');
+    loadElement.className = 'load-item';
+    loadElement.innerHTML = `
+      <div class="load-header">
+        <h4>Load ${index + 1}</h4>
+        <button class="ottofill-load-button" data-index="${index}">Ottofill this load</button>
+      </div>
+      <div class="load-details">
+        ${Object.entries(load).map(([key, value]) => `
+          <div class="load-detail">
+            <span class="load-key">${key}:</span>
+            <span class="load-value">${value}</span>
+          </div>
+        `).join('')}
+      </div>
     `;
-    emailContainer.appendChild(loadSelectorContainer);
+    loadsContainer.appendChild(loadElement);
+  });
 
-    const loadList = document.getElementById('load-list');
-    chatGPTResponse.loads.forEach((load, index) => {
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <input type="radio" name="load-select" id="load-${index}" ${index === 0 ? 'checked' : ''}>
-        <label for="load-${index}">Load ${index + 1}</label>
-      `;
-      loadList.appendChild(li);
+  // Add event listeners to the Ottofill buttons
+  document.querySelectorAll('.ottofill-load-button').forEach(button => {
+    button.addEventListener('click', (e) => {
+      const index = parseInt(e.target.getAttribute('data-index'));
+      fillSelectedLoad(loads[index]);
+    });
+  });
+
+  // Scroll to the top of the loads container
+  loadsContainer.scrollTop = 0;
+}
+
+async function fillSelectedLoad(loadData) {
+  const formFields = detectFormFields();
+  try {
+    await fillForm(loadData, formFields);
+    console.log('Load filled successfully');
+    alert('Load filled successfully! Check the console for any fields that may not have been visible.');
+  } catch (error) {
+    console.error('Error filling load:', error);
+    alert(`Failed to fill load. Error: ${error.message}`);
+  }
+}
+
+async function sendToAssistant(email, formFields) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'processChatGPT',
+      emailData: {
+        subject: email.subject,
+        body: email.body,
+        formFields: formFields,
+        url: window.location.href
+      }
     });
 
-    document.getElementById('fill-selected-load').addEventListener('click', fillSelectedLoad);
+    if (response.error && response.error.includes('Authentication failed')) {
+      handleReauthentication();
+      throw new Error('Authentication failed. Please log in again.');
+    }
 
-    // Hide email preview and expand load selector
-    emailPreviewContainer.style.display = 'none';
-    loadSelectorContainer.style.flex = '1';
-    loadSelectorContainer.style.overflowY = 'auto';
-  } else {
-    // Single load
-    fillForm(chatGPTResponse.loads[0]);
-  }
-}
-
-function fillSelectedLoad() {
-  const selectedRadio = document.querySelector('input[name="load-select"]:checked');
-  if (selectedRadio) {
-    const loadIndex = parseInt(selectedRadio.id.split('-')[1]);
-    fillForm(chatGPTResponse.loads[loadIndex]);
-    currentLoadIndex = loadIndex;
-    updateLoadSelector();
-  } else {
-    alert('Please select a load to fill.');
-  }
-}
-
-function updateLoadSelector() {
-  const loadSelectorContainer = document.getElementById('load-selector-container');
-  const emailPreviewContainer = document.getElementById('email-preview-container');
-
-  if (currentLoadIndex < chatGPTResponse.loads.length - 1) {
-    document.getElementById(`load-${currentLoadIndex + 1}`).checked = true;
-  } else {
-    // All loads have been filled
-    loadSelectorContainer.remove();
-    emailPreviewContainer.style.display = 'block';
-    adjustPreviewHeight();
+    if (response.error) {
+      throw new Error(response.error);
+    }
+    return response;
+  } catch (error) {
+    console.error('Error in sendToAssistant:', error);
+    throw error;
   }
 }
 
@@ -375,16 +402,10 @@ async function fillForm(formData, formFields) {
   console.log('Starting form fill. Form data:', formData);
   console.log('Form fields:', formFields);
 
-  // Flatten the formData if it's an array with a single object
-  if (Array.isArray(formData) && formData.length === 1) {
-    formData = formData[0];
-  }
-
   for (const [key, value] of Object.entries(formData)) {
-    console.log(`Attempting to fill field ${key} with value "${value}"`);
+    console.log(`Attempting to fill field ${key} with value:`, value);
 
-    // Find the matching form field
-    const field = formFields.find(f => f.label.toLowerCase() === key.toLowerCase());
+    const field = formFields.find(f => String(f.label).toLowerCase() === String(key).toLowerCase());
 
     if (field) {
       console.log(`Matched field:`, field);
@@ -394,16 +415,15 @@ async function fillForm(formData, formFields) {
       if (element && !element.hidden && element.style.display !== 'none' && element.type !== 'hidden') {
         console.log(`Found element for field:`, element);
         
-        // Add some basic validation
-        if (field.type === 'number' && isNaN(value)) {
+        if (field.type === 'number' && typeof value !== 'number' && isNaN(Number(value))) {
           console.warn(`Warning: Non-numeric value "${value}" for number field ${field.label}`);
         }
-        if (field.label.toLowerCase().includes('date') && !/^\d{1,2}$/.test(value)) {
+        if (field.label.toLowerCase().includes('date') && typeof value === 'string' && !/^\d{1,2}$/.test(value)) {
           console.warn(`Warning: Possible incorrect date format "${value}" for field ${field.label}`);
         }
         
         await fillFormField(element, value);
-        console.log(`Field ${field.label} filled with value: ${value}`);
+        console.log(`Field ${field.label} filled with value:`, value);
       } else {
         console.log(`No visible element found for field: ${field.label}`);
       }
@@ -411,8 +431,6 @@ async function fillForm(formData, formFields) {
       console.log(`No matching field found for key: ${key}`);
     }
   }
-  console.log('Form filling completed');
-  alert('Form filling attempt completed. Please check the console for details and verify the filled information.');
 }
 
 async function fillFormField(element, value) {
@@ -429,37 +447,34 @@ async function fillFormField(element, value) {
   } else if (element.type === 'checkbox' || element.type === 'radio') {
     await handleCheckboxOrRadio(element, value);
   } else {
-    element.value = value;
+    element.value = value !== null && value !== undefined ? String(value) : '';
   }
 
   console.log(`Field value after setting:`, element.value);
 
-  // Dispatch events
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // If the element is not visible in the viewport, log a message
   if (!isElementInViewport(element)) {
     console.log(`Field ${element.name || element.id} is not visible in the viewport.`);
   }
 }
 
 function handleSelect(selectElement, value) {
-  if (value === '' || value.toLowerCase() === 'select first option') {
-    // Select the first option
+  const stringValue = String(value).toLowerCase();
+  if (stringValue === '' || stringValue === 'select first option') {
     if (selectElement.options.length > 0) {
       selectElement.selectedIndex = 0;
     }
   } else {
     const option = Array.from(selectElement.options).find(opt => 
-      opt.text.toLowerCase().includes(value.toLowerCase())
+      opt.text.toLowerCase().includes(stringValue)
     );
 
     if (option) {
       selectElement.value = option.value;
     } else {
       console.log(`No matching option found for ${selectElement.name || selectElement.id} with value ${value}`);
-      // If no match is found, select the first option
       if (selectElement.options.length > 0) {
         selectElement.selectedIndex = 0;
       }
@@ -470,7 +485,8 @@ function handleSelect(selectElement, value) {
 }
 
 function handleCheckboxOrRadio(element, value) {
-  const shouldBeChecked = value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'yes';
+  const stringValue = String(value).toLowerCase();
+  const shouldBeChecked = stringValue === 'true' || stringValue === '1' || stringValue === 'yes';
   element.checked = shouldBeChecked;
   element.dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -505,9 +521,9 @@ function resize(e) {
   if (!isResizing) return;
   const drawer = document.getElementById('ottofill-drawer');
   const newWidth = startWidth + startX - e.clientX;
-  if (newWidth >= 300 && newWidth <= 600) { // Updated min and max values
+  if (newWidth >= 300 && newWidth <= 600) {
     drawer.style.width = `${newWidth}px`;
-    document.documentElement.style.setProperty('--drawer-width', `${newWidth}px`);
+    document.documentElement.style.property('--drawer-width', `${newWidth}px`);
   }
 }
 
@@ -615,12 +631,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     toggleDrawer();
   } else if (request.action === 'requireReauth') {
     handleReauthentication();
+  } else if (request.action === 'userSignedOut') {
+    // Handle sign out from other tabs
+    currentUser = null;
+    selectedEmail = null;
+    showLoginButton();
   }
 });
-
-function handleReauthentication() {
-  alert('Your session has expired. Please log in again.');
-  showLoginButton();
-}
 
 createDrawer();

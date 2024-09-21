@@ -40,7 +40,8 @@
   "oauth2": {
     "client_id": "1090398089996-r8me9q6306c0uc9kngkucrbvv99a1v6s.apps.googleusercontent.com",
     "scopes": [
-      "https://www.googleapis.com/auth/userinfo.email"
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/gmail.readonly"
     ]
   },
   "icons": {
